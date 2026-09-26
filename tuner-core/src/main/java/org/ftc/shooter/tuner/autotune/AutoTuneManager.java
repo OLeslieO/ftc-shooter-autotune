@@ -1,0 +1,461 @@
+package org.ftc.shooter.tuner.autotune;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+public final class AutoTuneManager {
+    public enum Phase { IDLE, DIRECTION, IDENTIFY, FEEDFORWARD, KP, KD, KI, AWAIT_LOAD, LOADED, VERIFY, READY, TEST, FAULT }
+
+    public static final class ShotResult {
+        public final int candidate;
+        public final int shot;
+        public final String phase;
+        public final Gains gains;
+        public final List<PerformanceMetrics> motors;
+
+        ShotResult(int candidate, int shot, String phase, Gains gains, List<PerformanceMetrics> motors) {
+            this.candidate = candidate;
+            this.shot = shot;
+            this.phase = phase;
+            this.gains = gains;
+            this.motors = motors;
+        }
+    }
+
+    private final ShooterHardware hardware;
+    private ShooterConfig config;
+    private Phase phase = Phase.IDLE;
+    private Gains gains = new Gains(0, 0, 0, 0, 0, 0);
+    private Gains result;
+    private String message = "Save configuration before starting";
+    private VelocityController[] controllers;
+    private double[] velocities = new double[0];
+    private double[] powers = new double[0];
+    private double[] currents = new double[0];
+    private double[] stalledFor;
+    private double[] currentFor;
+    private double battery;
+    private double target;
+    private double elapsed;
+    private double runStart;
+    private double previousTime = Double.NaN;
+    private double readyFor;
+    private int directionMotor;
+    private FeedforwardTuner identification;
+    private double[] windowStartVelocity;
+    private double[] identificationPreviousVelocity;
+    private double[] windowVoltage;
+    private double windowTime;
+    private List<Gains> candidates;
+    private int candidateIndex;
+    private Gains best;
+    private double bestScore;
+    private double bestOvershoot;
+    private double bestBias;
+    private double trialScore;
+    private double trialOvershoot;
+    private double trialBias;
+    private int speedIndex;
+    private boolean coast;
+    private PerformanceMetrics.Recorder[] recorders;
+    private LoadedShotTest shotTest;
+    private int shotIndex;
+    private boolean observingShot;
+    private boolean manualFeeding;
+    private final List<ShotResult> shots = new ArrayList<>();
+    private final List<String> trials = new ArrayList<>();
+
+    public AutoTuneManager(ShooterHardware hardware) {
+        this.hardware = hardware;
+    }
+
+    public void configure(ShooterConfig configuration) {
+        requireIdle();
+        configuration.validate();
+        config = null;
+        result = null;
+        shots.clear();
+        trials.clear();
+        try {
+            hardware.stop();
+            hardware.configure(configuration);
+        } catch (RuntimeException failure) {
+            try {
+                stop("Configuration failed: " + failure.getMessage());
+            } catch (RuntimeException stopFailure) {
+                failure.addSuppressed(stopFailure);
+            } finally {
+                phase = Phase.FAULT;
+            }
+            throw failure;
+        }
+        config = configuration;
+        int count = config.dual ? 2 : 1;
+        controllers = new VelocityController[count];
+        for (int index = 0; index < count; index++) controllers[index] = new VelocityController();
+        powers = new double[count];
+        stalledFor = new double[count];
+        currentFor = new double[count + 1];
+        phase = Phase.IDLE;
+        message = "Configured. Check directions at low power, then start unloaded tuning.";
+    }
+
+    public void directionTest(int motor, double now) {
+        requireConfigured();
+        requireIdle();
+        if (motor < 0 || motor > (config.dual ? 2 : 1)) throw new IllegalArgumentException("Invalid motor index");
+        begin(now);
+        directionMotor = motor;
+        phase = Phase.DIRECTION;
+        message = "Low-power direction pulse (0.3 seconds)";
+    }
+
+    public void startTuning(double now) {
+        requireConfigured();
+        requireIdle();
+        double[] initialVelocity = hardware.velocities();
+        for (double velocity : initialVelocity) {
+            if (Math.abs(velocity) >= 50) throw new IllegalStateException("Wait for the flywheel to stop before identification");
+        }
+        begin(now);
+        result = null;
+        shots.clear();
+        trials.clear();
+        identification = new FeedforwardTuner();
+        windowStartVelocity = null;
+        identificationPreviousVelocity = initialVelocity;
+        windowTime = 0;
+        phase = Phase.IDENTIFY;
+        message = "Identifying kS/kV/kA with bounded power steps; keep the shooter unloaded";
+    }
+
+    public void startLoaded(double now) {
+        if (phase != Phase.AWAIT_LOAD) throw new IllegalStateException("Finish unloaded tuning first");
+        begin(now);
+        beginSearch(Phase.LOADED, PIDTuner.loadedCandidates(gains));
+        message = "Loaded optimization: three candidates, then fresh verification shots";
+    }
+
+    public void startTest(Gains constants, double now) {
+        requireConfigured();
+        requireIdle();
+        Gains selected = result == null ? constants : result;
+        if (selected == null || selected.kV <= 0) throw new IllegalArgumentException("Tune or paste valid Constants first");
+        begin(now);
+        gains = selected;
+        phase = Phase.TEST;
+        message = "Test: right bumper starts feeding at speed; release to stop feeding";
+    }
+
+    private void begin(double now) {
+        hardware.stop();
+        runStart = now;
+        previousTime = now;
+        elapsed = 0;
+        readyFor = 0;
+        target = 0;
+        manualFeeding = false;
+        for (int index = 0; index < powers.length; index++) {
+            controllers[index].reset();
+            powers[index] = 0;
+            stalledFor[index] = 0;
+        }
+        for (int index = 0; index < currentFor.length; index++) currentFor[index] = 0;
+    }
+
+    public void update(double now, boolean robotActive, boolean browserAlive, boolean rightBumper) {
+        double seconds = Double.isNaN(previousTime) ? 0.02 : now - previousTime;
+        previousTime = now;
+        try {
+            if (config == null) return;
+            velocities = hardware.velocities();
+            currents = hardware.currents();
+            battery = hardware.batteryVoltage();
+            if (!busy()) return;
+            if (!robotActive || !browserAlive) throw new IllegalStateException("Stopped: Driver Station or browser disconnected");
+            if (!(seconds > 0 && seconds <= 0.2)) throw new IllegalStateException("Control loop missed its 200 ms deadline");
+            if (now - runStart > config.maxRunSeconds) throw new IllegalStateException("Session time limit reached");
+            safety(seconds);
+            elapsed += seconds;
+            if (phase == Phase.DIRECTION) {
+                if (elapsed >= 0.3) stop("Direction pulse complete; visually check the selected motor");
+                else {
+                    double pulsePower = Math.min(0.12, config.maxPower);
+                    hardware.directionPulse(directionMotor, pulsePower);
+                    if (directionMotor < powers.length) powers[directionMotor] = pulsePower;
+                }
+            } else if (phase == Phase.IDENTIFY) {
+                identify(seconds);
+            } else if (phase == Phase.LOADED || phase == Phase.VERIFY) {
+                loaded(seconds);
+            } else if (phase == Phase.TEST) {
+                control(config.targetVelocity, seconds);
+                manualFeeding = rightBumper && (manualFeeding || atSpeed(0.1));
+                hardware.feed(manualFeeding);
+            } else {
+                trial(seconds);
+            }
+        } catch (RuntimeException failure) {
+            stop(failure.getMessage());
+            phase = Phase.FAULT;
+        }
+    }
+
+    private void safety(double seconds) {
+        if (!Double.isFinite(battery) || battery < config.minBatteryVolts) throw new IllegalStateException("Low/invalid battery voltage");
+        if (velocities.length != powers.length || currents.length != powers.length + 1) {
+            throw new IllegalStateException("Hardware sample size mismatch");
+        }
+        for (int motor = 0; motor < velocities.length; motor++) {
+            double velocity = velocities[motor];
+            if (!Double.isFinite(velocity) || Math.abs(velocity) > config.maxVelocity) throw new IllegalStateException("Shooter overspeed/invalid encoder: " + motor);
+            if (phase != Phase.DIRECTION && velocity < -50) throw new IllegalStateException("Negative shooter encoder: check motor direction");
+            stalledFor[motor] = powers[motor] > 0.2 && Math.abs(velocity) < 30 ? stalledFor[motor] + seconds : 0;
+            if (stalledFor[motor] > 0.8) throw new IllegalStateException("Shooter stall/encoder disconnected: " + motor);
+        }
+        double feederVelocity = hardware.preshooterVelocity();
+        if (!Double.isFinite(feederVelocity) || Math.abs(feederVelocity) > config.maxPreshooterVelocity) throw new IllegalStateException("Preshooter overspeed/invalid encoder");
+        for (int motor = 0; motor < currents.length; motor++) {
+            if (!Double.isFinite(currents[motor]) || currents[motor] < 0) throw new IllegalStateException("Invalid motor current");
+            currentFor[motor] = currents[motor] > config.maxCurrentAmps ? currentFor[motor] + seconds : 0;
+            if (currentFor[motor] >= 0.15) throw new IllegalStateException("Motor current limit: " + motor);
+        }
+    }
+
+    private void identify(double seconds) {
+        if (windowStartVelocity == null) {
+            windowStartVelocity = identificationPreviousVelocity;
+            windowVoltage = new double[powers.length];
+        }
+        windowTime += seconds;
+        for (int motor = 0; motor < powers.length; motor++) windowVoltage[motor] += powers[motor] * battery * seconds;
+        if (windowTime >= 0.08) {
+            for (int motor = 0; motor < velocities.length; motor++) {
+                identification.add((windowStartVelocity[motor] + velocities[motor]) / 2,
+                        (velocities[motor] - windowStartVelocity[motor]) / windowTime,
+                        windowVoltage[motor] / windowTime);
+            }
+            windowStartVelocity = null;
+            windowTime = 0;
+        }
+        identificationPreviousVelocity = velocities.clone();
+        double[] levels = {0.2, 0.4, 0.65, 0.35, 0.75, 0.5};
+        int step = (int) (elapsed / 1.6);
+        if (step >= levels.length) {
+            gains = identification.fit();
+            if (gains.kS + gains.kV * config.targetVelocity > battery * config.maxPower * 0.9) {
+                throw new IllegalStateException("Target lacks power headroom; lower target or revise power limit");
+            }
+            trials.add("Identification R²=" + identification.fitQuality);
+            beginSearch(Phase.FEEDFORWARD, Collections.singletonList(gains));
+            return;
+        }
+        for (int motor = 0; motor < powers.length; motor++) powers[motor] = levels[step] * config.maxPower;
+        hardware.shooterPowers(powers);
+    }
+
+    private void beginSearch(Phase next, List<Gains> options) {
+        phase = next;
+        candidates = options;
+        candidateIndex = 0;
+        best = options.get(0);
+        bestScore = Double.POSITIVE_INFINITY;
+        bestOvershoot = 0;
+        bestBias = 0;
+        beginTrial();
+    }
+
+    private void beginTrial() {
+        gains = candidates.get(candidateIndex);
+        hardware.stop();
+        for (int motor = 0; motor < powers.length; motor++) {
+            powers[motor] = 0;
+            controllers[motor].reset();
+        }
+        elapsed = 0;
+        target = 0;
+        readyFor = 0;
+        speedIndex = 0;
+        shotIndex = 0;
+        observingShot = false;
+        trialScore = 0;
+        trialOvershoot = 0;
+        trialBias = 0;
+        coast = true;
+        message = phase + ": candidate " + (candidateIndex + 1) + "/" + candidates.size();
+    }
+
+    private boolean coasting(double seconds) {
+        if (!coast) return false;
+        hardware.stop();
+        boolean stopped = true;
+        for (double velocity : velocities) stopped &= Math.abs(velocity) < 50;
+        readyFor = stopped ? readyFor + seconds : 0;
+        if (elapsed > 10) throw new IllegalStateException("Flywheel did not coast down within 10 seconds");
+        if (readyFor >= 0.2) {
+            coast = false;
+            elapsed = 0;
+            readyFor = 0;
+            newRecorders();
+        }
+        return true;
+    }
+
+    private double trialTarget() {
+        double[] fractions = phase == Phase.FEEDFORWARD ? new double[]{0.55, 0.8, 1} : new double[]{0.65, 1, 0.8};
+        return fractions[speedIndex] * config.targetVelocity;
+    }
+
+    private void newRecorders() {
+        recorders = new PerformanceMetrics.Recorder[powers.length];
+        for (int motor = 0; motor < recorders.length; motor++) {
+            recorders[motor] = new PerformanceMetrics.Recorder(trialTarget(), velocities[motor], 2.5,
+                    trialTarget() < target);
+        }
+    }
+
+    private void trial(double seconds) {
+        if (coasting(seconds)) return;
+        control(trialTarget(), seconds);
+        for (int motor = 0; motor < recorders.length; motor++) recorders[motor].add(velocities[motor], seconds);
+        if (elapsed < 2.5) return;
+        for (PerformanceMetrics.Recorder recorder : recorders) {
+            PerformanceMetrics metrics = recorder.finish();
+            if (phase == Phase.FEEDFORWARD && metrics.steadyError / trialTarget() > 0.15) {
+                throw new IllegalStateException("Feedforward validation failed at " + trialTarget() + " ticks/s");
+            }
+            trialScore += metrics.score(trialTarget()) / powers.length / 3;
+            trialOvershoot = Math.max(trialOvershoot, metrics.overshoot / trialTarget());
+            trialBias = Math.max(trialBias, metrics.steadyError / trialTarget());
+        }
+        speedIndex++;
+        elapsed = 0;
+        if (speedIndex < 3) newRecorders();
+        else finishCandidate();
+    }
+
+    private void finishCandidate() {
+        trials.add(phase + " candidate " + (candidateIndex + 1) + " score=" + trialScore);
+        if (trialScore < bestScore) {
+            bestScore = trialScore;
+            best = gains;
+            bestOvershoot = trialOvershoot;
+            bestBias = trialBias;
+        }
+        candidateIndex++;
+        if (candidateIndex < candidates.size()) {
+            beginTrial();
+            return;
+        }
+        gains = best;
+        hardware.stop();
+        if (phase == Phase.FEEDFORWARD) beginSearch(Phase.KP, PIDTuner.proportionalCandidates(gains));
+        else if (phase == Phase.KP && bestOvershoot > 0.08) beginSearch(Phase.KD, PIDTuner.derivativeCandidates(gains));
+        else if ((phase == Phase.KP || phase == Phase.KD) && bestBias > 0.02) beginSearch(Phase.KI, PIDTuner.integralCandidates(gains));
+        else if (phase == Phase.LOADED) {
+            if (!Double.isFinite(bestScore)) throw new IllegalStateException("No loaded candidate recovered reliably");
+            beginSearch(Phase.VERIFY, Collections.singletonList(gains));
+        } else if (phase == Phase.VERIFY) {
+            if (!Double.isFinite(bestScore)) throw new IllegalStateException("Final loaded verification failed");
+            result = gains;
+            stop("Validated under load. Export constants or start Test.");
+            phase = Phase.READY;
+        } else {
+            stop("Unloaded tuning complete. Load game pieces and arm loaded tests in the webpage.");
+            phase = Phase.AWAIT_LOAD;
+        }
+    }
+
+    private void loaded(double seconds) {
+        if (coasting(seconds)) return;
+        control(config.targetVelocity, seconds);
+        if (!observingShot) {
+            readyFor = atSpeed(0.05) ? readyFor + seconds : 0;
+            if (elapsed > 8) throw new IllegalStateException("Shooter could not reach shot-ready velocity");
+            if (readyFor >= 0.35) {
+                shotTest = new LoadedShotTest(config, velocities);
+                observingShot = true;
+                elapsed = 0;
+                hardware.feed(true);
+                message = phase + ": candidate " + (candidateIndex + 1) + ", shot " + (shotIndex + 1) + "/" + config.shots;
+            }
+            return;
+        }
+        hardware.feed(elapsed < config.feedSeconds);
+        shotTest.sample(velocities, seconds);
+        if (elapsed < config.recoverySeconds) return;
+        hardware.feed(false);
+        List<PerformanceMetrics> metrics = shotTest.finish();
+        shots.add(new ShotResult(candidateIndex + 1, shotIndex + 1, phase.name(), gains, metrics));
+        double worst = 0;
+        for (PerformanceMetrics motor : metrics) {
+            double score = motor.score(config.targetVelocity);
+            if (!motor.recovered || motor.overshoot > config.targetVelocity * 0.15
+                    || motor.steadyError > config.targetVelocity * 0.05) score = Double.POSITIVE_INFINITY;
+            worst = Math.max(worst, score);
+        }
+        trialScore += worst / config.shots;
+        observingShot = false;
+        readyFor = 0;
+        elapsed = 0;
+        shotIndex++;
+        if (shotIndex >= config.shots) finishCandidate();
+    }
+
+    private boolean atSpeed(double fraction) {
+        for (double velocity : velocities) {
+            if (Math.abs(velocity - config.targetVelocity) > config.targetVelocity * fraction) return false;
+        }
+        return true;
+    }
+
+    private void control(double demand, double seconds) {
+        double previousTarget = target;
+        target += VelocityController.clamp(demand - target, -config.targetAcceleration * seconds,
+                config.targetAcceleration * seconds);
+        double acceleration = (target - previousTarget) / seconds;
+        for (int motor = 0; motor < powers.length; motor++) {
+            powers[motor] = controllers[motor].update(gains, target, acceleration,
+                    velocities[motor], seconds, battery, config.maxPower);
+        }
+        hardware.shooterPowers(powers);
+    }
+
+    public void stop(String reason) {
+        try {
+            hardware.stop();
+        } finally {
+            for (int motor = 0; motor < powers.length; motor++) powers[motor] = 0;
+            target = 0;
+            manualFeeding = false;
+            phase = Phase.IDLE;
+            message = reason;
+        }
+    }
+
+    private void requireConfigured() {
+        if (config == null) throw new IllegalStateException("Save Configure first");
+    }
+
+    private void requireIdle() {
+        if (busy() || phase == Phase.AWAIT_LOAD) throw new IllegalStateException("Stop the current session first");
+    }
+
+    public boolean busy() {
+        return phase != Phase.IDLE && phase != Phase.AWAIT_LOAD && phase != Phase.READY && phase != Phase.FAULT;
+    }
+
+    public Phase phase() { return phase; }
+    public String message() { return message; }
+    public ShooterConfig config() { return config; }
+    public Gains gains() { return gains; }
+    public Gains result() { return result; }
+    public double[] velocities() { return velocities.clone(); }
+    public double[] powers() { return powers.clone(); }
+    public double[] currents() { return currents.clone(); }
+    public double battery() { return battery; }
+    public double target() { return target; }
+    public List<ShotResult> shots() { return Collections.unmodifiableList(shots); }
+    public List<String> trials() { return Collections.unmodifiableList(trials); }
+}

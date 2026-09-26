@@ -1,0 +1,36 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #172334; background: #f3f5f7; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 1100px; margin: auto; padding: 24px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+h1 { margin: 4px 0 16px; font-size: 30px; }
+h2 { margin: 0 0 12px; font-size: 22px; }
+h3 { font-size: 18px; margin-bottom: 8px; }
+p { line-height: 1.6; }
+.eyebrow { font-size: 12px; margin: 0; color: #526477; }
+section { padding: 24px; margin: 20px 0; background: white; border: 1px solid #ccd4dd; border-radius: 8px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin-bottom: 20px; }
+.field label, dt { display: block; font-size: 14px; margin-bottom: 6px; }
+input:not([type=checkbox]), select { width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid #8493a3; border-radius: 4px; font: inherit; color: inherit; background: white; }
+input[type=checkbox] { width: 18px; height: 18px; vertical-align: middle; }
+button { min-height: 44px; padding: 10px 16px; border: 1px solid #194a8c; background: #194a8c; color: white; font: inherit; font-weight: 600; border-radius: 5px; cursor: pointer; }
+button.stop { background: #a01e22; border-color: #a01e22; }
+button:disabled { background: #e5e9ef; border-color: #9ca8b6; color: #526070; cursor: default; }
+:focus-visible { outline: 3px solid #337dcc; outline-offset: 3px; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 18px 0 10px; }
+.actions select { width: auto; }
+dd { margin: 0; font-size: 17px; font-variant-numeric: tabular-nums; }
+dt { color: #526477; }
+figure { margin: 20px 0 0; }
+canvas { width: 100%; height: 300px; background: #fafbfc; border: 1px solid #ccd4dd; }
+figcaption { font-size: 13px; margin-top: 8px; line-height: 1.8; }
+.target { color: #526477; }.primary { color: #194a8c; }.secondary { color: #8d420d; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f3f5f7; padding: 14px; line-height: 1.6; font-size: 13px; }
+.table-scroll { overflow-x: auto; margin-top: 20px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+caption { text-align: left; margin-bottom: 10px; font-weight: 600; }
+td, th { text-align: left; padding: 10px 8px; border-bottom: 1px solid #ccd4dd; }
+summary { cursor: pointer; padding: 12px 0; }
+a { color: #194a8c; }
+#error { color: #a01e22; font-weight: 600; }
+@media (max-width: 600px) { main { padding: 12px; } section { padding: 16px; } header { align-items: flex-start; } h1 { font-size: 24px; } .grid { grid-template-columns: 1fr; } }

@@ -1,0 +1,61 @@
+plugins {
+    id "com.android.library"
+    id "maven-publish"
+}
+
+android {
+    namespace = "org.ftc.shooter.tuner.library"
+    compileSdkVersion 30
+
+    defaultConfig {
+        minSdkVersion 24
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    sourceSets {
+        main.java.srcDir("../ftc-integration/src/main/java")
+    }
+
+    publishing {
+        singleVariant('release') {
+            withSourcesJar()
+        }
+    }
+}
+
+apply from: '../gradle/publishing.gradle'
+
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                from components.release
+                artifactId = 'shooter-autotune'
+            }
+        }
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+def coreProject = findProject(":external:ftc-shooter-pidf-tuner:tuner-core")
+if (coreProject == null) {
+    coreProject = findProject(":tuner-core")
+}
+
+if (coreProject == null) {
+    throw new GradleException("tuner-core must be included before ftc-library")
+}
+
+dependencies {
+    api project(coreProject.path)
+    compileOnly "org.firstinspires.ftc:RobotCore:12.0.0"
+    compileOnly "org.firstinspires.ftc:Hardware:12.0.0"
+}

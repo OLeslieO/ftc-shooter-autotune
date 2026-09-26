@@ -1,0 +1,21 @@
+name: Check library
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-30' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: bash gradlew --no-daemon :tuner-core:check :ftc-library:assembleRelease :tuner-core:publish :ftc-library:publish
+      - run: python3 scripts/verify-publication.py build/maven "$(sed -n 's/^version=//p' gradle.properties | tr -d '\r')"

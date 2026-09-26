@@ -1,0 +1,125 @@
+name: Publish Maven
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag, for example v0.1.0
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: maven-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+      - name: Validate release
+        id: release
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          VERSION="${RELEASE_TAG#v}"
+          test "$VERSION" = "$(sed -n 's/^version=//p' gradle.properties | tr -d '\r')"
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-30' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Load existing Maven releases
+        id: history
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          REMOTE_BRANCH="$(git ls-remote --heads origin refs/heads/maven)"
+          if [ -n "$REMOTE_BRANCH" ]; then
+            git fetch origin refs/heads/maven:refs/remotes/origin/maven
+            git worktree add --detach build/site refs/remotes/origin/maven
+          else
+            mkdir -p build/site
+            git -C build/site init --initial-branch=maven
+          fi
+          SOURCE_COMMIT="$(git rev-parse HEAD)"
+          RECORD="build/site/releases/$VERSION.txt"
+          if [ -f "$RECORD" ]; then
+            test "$(cat "$RECORD")" = "$SOURCE_COMMIT" || { echo 'Released versions are immutable'; exit 1; }
+            echo 'existing=true' >> "$GITHUB_OUTPUT"
+          else
+            for ARTIFACT in shooter-autotune shooter-autotune-core; do
+              test ! -e "build/site/maven/io/github/oleslieo/$ARTIFACT/$VERSION"
+            done
+            echo 'existing=false' >> "$GITHUB_OUTPUT"
+          fi
+          mkdir -p build/maven
+          if [ -d build/site/maven ]; then cp -a build/site/maven/. build/maven/; fi
+      - name: Build and stage publications
+        if: steps.history.outputs.existing != 'true'
+        run: bash gradlew --no-daemon :tuner-core:check :ftc-library:assembleRelease :tuner-core:publish :ftc-library:publish
+      - name: Verify Maven artifacts
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: python3 scripts/verify-publication.py build/maven "$VERSION"
+      - name: Prepare Pages artifact
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/pages/maven build/site/releases
+          cp -a build/maven/. build/pages/maven/
+          touch build/pages/.nojekyll
+          cp -a build/pages/. build/site/
+          git rev-parse HEAD > "build/site/releases/$VERSION.txt"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/pages
+      - name: Preserve release history
+        if: steps.history.outputs.existing != 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          git -C build/site config user.name 'github-actions[bot]'
+          git -C build/site config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C build/site add .
+          git -C build/site commit -m "Publish $VERSION"
+          git fetch build/site HEAD
+          git push origin FETCH_HEAD:refs/heads/maven
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
+      - name: Check public Maven access
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          for ARTIFACT in shooter-autotune shooter-autotune-core; do
+            curl --fail --silent --show-error --retry 6 --retry-all-errors --retry-delay 5 \
+              "${PAGE_URL%/}/maven/io/github/oleslieo/$ARTIFACT/$VERSION/$ARTIFACT-$VERSION.pom" -o /dev/null
+          done

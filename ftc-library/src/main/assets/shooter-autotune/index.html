@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="autotune-key" content="SESSION_KEY">
+  <title>Shooter AutoTune</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<main>
+  <header><div><p class="eyebrow">FTC · ROBOT LOCAL</p><h1>Shooter AutoTune</h1></div><button id="stop" class="stop" type="button">Stop all motors</button></header>
+  <p id="connection" role="status">Connecting to robot…</p>
+  <p id="error" role="alert"></p>
+  <p>1 Configure → 2 Tune unloaded → 3 Arm loaded shots → 4 Export → 5 Test</p>
+  <section aria-labelledby="configure-heading">
+    <h2 id="configure-heading">1. Configure</h2>
+    <p>Save while stopped. Direction tests require Driver Station Start and run at 12% power for 0.3 seconds.</p>
+    <form id="config-form"><div id="fields" class="grid"></div><button type="submit" id="save">Save configuration</button></form>
+    <div class="actions"><label for="direction-motor">Direction test motor</label><select id="direction-motor"><option value="0">Shooter 1</option><option value="1">Shooter 2</option><option value="2">Preshooter</option></select><button id="direction" type="button">Pulse selected motor</button></div>
+    <p id="config-status">No configuration applied in this OpMode yet.</p>
+  </section>
+  <section aria-labelledby="tune-heading">
+    <h2 id="tune-heading">2. PIDFTuner</h2>
+    <p>Remove game pieces for identification. Keep this page visible: a missing heartbeat stops motors after 1.5 seconds.</p>
+    <div class="actions"><label><input id="unloaded" type="checkbox"> Shooter is unloaded; directions checked</label><button id="tune" type="button">Start unloaded tuning</button></div>
+    <h3>3. Loaded shots</h3>
+    <p id="shot-plan">Three candidates plus fresh verification, with multiple shots each. Every feed pulse must deliver one game piece into a safe capture area.</p>
+    <div class="actions"><label><input id="armed" type="checkbox"> Game pieces loaded; firing area clear</label><button id="loaded" type="button">Arm and run loaded tests</button></div>
+  </section>
+  <section aria-labelledby="live-heading">
+    <h2 id="live-heading">Live telemetry</h2>
+    <p><strong id="phase">IDLE</strong> · <span id="message">Waiting for robot</span></p>
+    <p id="command" role="status"></p>
+    <dl id="live-values" class="grid"><div><dt>Target</dt><dd id="target">—</dd></div><div><dt>Shooter 1</dt><dd id="motor1">—</dd></div><div><dt>Shooter 2</dt><dd id="motor2">—</dd></div><div><dt>Battery / feeder</dt><dd id="battery">—</dd></div></dl>
+    <figure><canvas id="graph" width="1000" height="300" role="img" aria-label="Last 30 seconds of target and actual shooter velocity; current numeric values appear above"></canvas><figcaption>Velocity (ticks/s) · <span class="legend target">dashed: target</span> · <span class="legend primary">solid: shooter 1</span> · <span class="legend secondary">dotted: shooter 2</span></figcaption></figure>
+  </section>
+  <section aria-labelledby="results-heading">
+    <h2 id="results-heading">4. Results and export</h2>
+    <p id="result-status">Constants become exportable after loaded verification passes.</p>
+    <pre id="gains">No model yet.</pre>
+    <div class="actions"><button id="export" type="button">Export Java constants</button><a href="/api/results" download="ShooterAutoTune-results.json">Download metrics JSON</a></div>
+    <pre id="constants"></pre>
+    <details><summary>Previous session constants (reference only)</summary><pre id="previous"></pre></details>
+    <details><summary>Experiment scores</summary><pre id="trials"></pre></details>
+    <div class="table-scroll"><table><caption>Loaded shots — each motor measured separately</caption><thead><tr><th>Phase / candidate / shot / motor</th><th>Drop (ticks/s)</th><th>Max error</th><th>Recovery (s)</th><th>Overshoot</th><th>RMSE</th></tr></thead><tbody id="shots"></tbody></table></div>
+  </section>
+  <section aria-labelledby="test-heading">
+    <h2 id="test-heading">5. Test</h2>
+    <p>Uses this session’s validated gains, or the six SHOOTER_K* fields compiled from shooter/Constants.java. Hold gamepad1.right_bumper to start feeding once all shooter motors are within 10% of target. Feeding then stays on through velocity dips until you release the bumper; safety limits and Stop always override it.</p>
+    <button id="test" type="button">Start Test</button>
+  </section>
+</main>
+</body>
+</html>

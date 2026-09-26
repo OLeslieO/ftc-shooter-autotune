@@ -1,0 +1,28 @@
+def releaseProperties = new Properties()
+file('../gradle.properties').withInputStream { releaseProperties.load(it) }
+group = 'io.github.oleslieo'
+version = releaseProperties.getProperty('version')
+if (!(version ==~ /\d+\.\d+\.\d+/)) {
+    throw new GradleException('Set a stable semantic version in gradle.properties')
+}
+
+publishing {
+    repositories {
+        maven {
+            name = 'Staging'
+            url = uri('../build/maven')
+        }
+    }
+    publications.withType(MavenPublication).configureEach {
+        pom {
+            name = project.name == 'tuner-core' ? 'Shooter AutoTune Core' : 'Shooter AutoTune FTC'
+            description = 'Robot-hosted FTC shooter velocity system identification and PIDF tuning'
+            url = 'https://github.com/OLeslieO/ftc-shooter-autotune'
+            scm {
+                url = 'https://github.com/OLeslieO/ftc-shooter-autotune'
+                connection = 'scm:git:https://github.com/OLeslieO/ftc-shooter-autotune.git'
+                developerConnection = 'scm:git:ssh://git@github.com/OLeslieO/ftc-shooter-autotune.git'
+            }
+        }
+    }
+}

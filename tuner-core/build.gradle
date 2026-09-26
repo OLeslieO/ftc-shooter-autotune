@@ -1,0 +1,35 @@
+plugins {
+    id "java-library"
+    id "maven-publish"
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+    withSourcesJar()
+}
+
+apply from: '../gradle/publishing.gradle'
+
+publishing {
+    publications {
+        release(MavenPublication) {
+            from components.java
+            artifactId = 'shooter-autotune-core'
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+tasks.register('simulationTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.ftc.shooter.tuner.autotune.AutoTuneSimulationTest'
+}
+
+tasks.named('check') {
+    dependsOn simulationTest
+}
