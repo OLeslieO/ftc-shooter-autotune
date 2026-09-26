@@ -9,7 +9,7 @@
 | FTC AAR | `io.github.oleslieo:shooter-autotune:0.1.0` |
 | 自动传递的核心 JAR | `io.github.oleslieo:shooter-autotune-core:0.1.0` |
 
-以上是预配置目标，尚未确认远程创建或部署成功。`FTC16093-BioBuzz` 只作为使用方；不要把本目录的 workflow 放到机器人仓库根目录执行发布。
+**0.1.0 已通过 `Publish Maven` workflow 发布，以上地址均可公开下载。** 机器人工程只作为使用方；不要把本目录的 workflow 放到机器人仓库根目录执行发布。
 
 一个新的 GitHub 仓库即可同时托管源码与 Maven：`main` 存源码，发布流程管理 `maven` 分支保存全部历史制品，GitHub Pages 提供无需登录的 HTTPS 下载。不会使用已有机器人仓库的 Pages 或其他 Maven 服务。这里没有向 Maven Central 上传，也不要求消费者设置 GitHub token。
 
@@ -23,7 +23,7 @@ python3 external/ftc-shooter-pidf-tuner/scripts/prepare-standalone.py build/stan
 
 Windows 若没有 `python3`，使用 `py -3`。脚本复制库源码、示例、Gradle wrapper、说明和独立 CI，初始化新的 `.git`。它不复制 TeamCode、机器人历史、构建缓存或本机 SDK 路径，也不提交、不推送。目标已存在会拒绝覆盖；若已有本次生成的目录，直接使用即可。
 
-可将生成目录整体移动到例如 `C:\Users\leslie\ftc-shooter-autotune` 后维护。`build/standalone` 只是导出位置，可能被机器人项目 clean 删除；长期开发请先移出机器人工程。
+`build/standalone` 只是导出位置，可能被机器人项目 clean 删除；长期开发请先移出机器人工程。本仓库即由此步骤导出，已完成创建和首次发布，以下第 2、3 步仅供换 owner 或重建仓库时参考。
 
 ## 2. 创建新的 GitHub 仓库
 
@@ -43,7 +43,7 @@ git push -u origin main
 gh repo create OLeslieO/ftc-shooter-autotune --public --source=. --remote=origin --push
 ```
 
-这些命令只在独立仓库执行。当前工作尚未替你运行提交或远程创建。
+这些命令只在独立仓库执行。
 
 如果改用其他 GitHub owner 或仓库名，同步修改 `gradle/publishing.gradle` 的 group/SCM/URL、`scripts/verify-publication.py` 和发布 workflow 中的 group 路径，以及 README 的安装地址/坐标。
 
@@ -101,4 +101,4 @@ Maven 根目录不需要有首页，不能仅凭根 URL 404 判断失败。确�
 - `Could not find shooter-autotune-core` 通常表示只上传了 AAR、遗漏核心库或 POM 坐标错误；始终通过本工作流发布两个模块。
 - 若 workflow 验证未通过，不要只手动上传 AAR 绕过检查。查看具体 POM、module、checksum 或 assets 报错。
 
-当前执行环境的 Gradle 本地套接字和 GitHub 网络访问受限，未完成实际 AAR 发布构建或远程部署。这里提供的是可审查的发布流程；必须以独立仓库 CI、公开下载和消费者构建的结果确认发布成功。
+每次发布都以独立仓库 CI、公开 POM/AAR/JAR 下载和消费者工程的 Gradle Sync 结果为准；workflow 通过不代表实机验证完成。
