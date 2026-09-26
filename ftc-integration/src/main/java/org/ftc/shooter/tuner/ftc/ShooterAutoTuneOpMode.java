@@ -33,12 +33,16 @@ public abstract class ShooterAutoTuneOpMode extends LinearOpMode {
         FtcShooterHardware hardware = new FtcShooterHardware(hardwareMap);
         manager = new AutoTuneManager(hardware);
         preferences = hardwareMap.appContext.getSharedPreferences("shooter-autotune-v1", Context.MODE_PRIVATE);
-        AutoTuneWebServer server = new AutoTuneWebServer(hardwareMap.appContext.getAssets());
         String commandMessage = "";
         double lastPublish = 0;
         Gains saved = null;
+        AutoTuneWebServer server;
         try {
-            server.start(1000, true);
+            server = AutoTuneWebServer.open(hardwareMap.appContext.getAssets());
+        } catch (Exception exception) {
+            throw new IllegalStateException("Shooter AutoTune: " + exception.getMessage(), exception);
+        }
+        try {
             while (!isStopRequested()) {
                 double now = seconds();
                 if (server.takeStop()) {
@@ -81,8 +85,8 @@ public abstract class ShooterAutoTuneOpMode extends LinearOpMode {
                     snapshot.put("constants", manager.result() == null ? "" : manager.result().javaConstants());
                     snapshot.put("previousConstants", preferences.getString("lastConstants", ""));
                     server.publish(snapshot.toString(), manager.result() == null ? "" : manager.result().javaConstants());
-                    telemetry.addData("Web UI", "http://192.168.43.1:8081 (Control Hub)");
-                    telemetry.addData("Phone RC", "http://192.168.49.1:8081");
+                    telemetry.addData("Web UI", "http://192.168.43.1:" + server.port + " (Control Hub)");
+                    telemetry.addData("Phone RC", "http://192.168.49.1:" + server.port);
                     telemetry.addData("Phase", manager.phase());
                     telemetry.addData("Status", manager.message());
                     telemetry.addData("Command", commandMessage);

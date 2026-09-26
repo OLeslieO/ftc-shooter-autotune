@@ -4,9 +4,9 @@
 
 - 源码仓库：<https://github.com/OLeslieO/ftc-shooter-autotune>
 - Maven 仓库：`https://oleslieo.github.io/ftc-shooter-autotune/maven/`
-- 当前版本：**0.1.0**（`io.github.oleslieo:shooter-autotune:0.1.0`）
+- 当前版本：**0.1.1**（`io.github.oleslieo:shooter-autotune:0.1.1`）
 
-运行时无需电脑端服务器、Node.js、云服务或互联网。网页由 Robot Controller 上的 OpMode 在端口 **8081** 提供，网页资源随 APK 一起安装。只有首次 Gradle 下载依赖时需要互联网。
+运行时无需电脑端服务器、Node.js、云服务或互联网。网页由 Robot Controller 上的 OpMode 在端口 **8082** 提供（被占用时自动改用 8083、8084，DS telemetry 显示实际地址），网页资源随 APK 一起安装。只有首次 Gradle 下载依赖时需要互联网。
 
 ## 目录
 
@@ -52,10 +52,10 @@ allprojects {
 **第 2 步：添加依赖。** 在 `TeamCode/build.gradle` 的 `dependencies` 块中加入：
 
 ```gradle
-implementation 'io.github.oleslieo:shooter-autotune:0.1.0'
+implementation 'io.github.oleslieo:shooter-autotune:0.1.1'
 ```
 
-这个 AAR 会自动带上核心库 `io.github.oleslieo:shooter-autotune-core:0.1.0` 和网页资源，不需要再单独声明。
+这个 AAR 会自动带上核心库 `io.github.oleslieo:shooter-autotune-core:0.1.1` 和网页资源，不需要再单独声明。
 
 **第 3 步：复制入口文件。** 把本仓库 `examples/teamcode/shooter/` 下的 **`Tuning.java`** 和 **`Constants.java`** 复制到目标工程：
 
@@ -90,7 +90,7 @@ public final class Tuning extends ShooterAutoTuneOpMode {
 如果 Sync 报 `Could not find io.github.oleslieo:shooter-autotune`，先在浏览器确认下面的地址能打开，再运行 `./gradlew --refresh-dependencies :TeamCode:assembleDebug` 清掉 Gradle 缓存的 404：
 
 ```text
-https://oleslieo.github.io/ftc-shooter-autotune/maven/io/github/oleslieo/shooter-autotune/0.1.0/shooter-autotune-0.1.0.pom
+https://oleslieo.github.io/ftc-shooter-autotune/maven/io/github/oleslieo/shooter-autotune/0.1.1/shooter-autotune-0.1.1.pom
 ```
 
 ### 方式二：本地源码安装（改库源码时使用）
@@ -116,7 +116,7 @@ implementation project(':external:ftc-shooter-autotune:ftc-library')
 
 ### 升级版本
 
-把 `implementation 'io.github.oleslieo:shooter-autotune:0.1.0'` 的版本号改为新版本后重新 Sync。可用版本列表见 [maven-metadata.xml](https://oleslieo.github.io/ftc-shooter-autotune/maven/io/github/oleslieo/shooter-autotune/maven-metadata.xml)。已发布版本不会被覆盖。
+把 `implementation 'io.github.oleslieo:shooter-autotune:0.1.1'` 的版本号改为新版本后重新 Sync。可用版本列表见 [maven-metadata.xml](https://oleslieo.github.io/ftc-shooter-autotune/maven/io/github/oleslieo/shooter-autotune/maven-metadata.xml)。已发布版本不会被覆盖。
 
 ## 使用方法
 
@@ -127,9 +127,9 @@ implementation project(':external:ftc-shooter-autotune:ftc-library')
 1. Driver Station 选择 **`Shooter AutoTune`**，按 **INIT**。此时启动网页服务，不会转动电机。
 2. 电脑或手机连接机器人的 Wi-Fi。
 3. 用 `http`（不是 `https`）打开：
-   - Control Hub：`http://192.168.43.1:8081`
-   - 手机 Robot Controller 的 Wi-Fi Direct：通常为 `http://192.168.49.1:8081`
-   - 若机器人地址不同，用实际 RC 地址，端口仍是 `8081`。DS 的 telemetry 会显示地址。
+   - Control Hub：`http://192.168.43.1:8082`
+   - 手机 Robot Controller 的 Wi-Fi Direct：通常为 `http://192.168.49.1:8082`
+   - 若机器人地址不同，用实际 RC 地址。DS 的 telemetry 会显示实际地址和端口。不要用 8080 或 8081，那是 RC 自己的网页控制台和 WebSocket 端口，打开会看到 RC 页面或 `websocket upgrade failure`。
 4. 建议使用当前版 Chrome 或 Edge，并保持调参标签页在前台。
 
 网页只在该 OpMode 存活时可访问。DS STOP 后网页服务器关闭。网页上的 **Stop all motors** 只停止实验，网页保持在线。
@@ -267,7 +267,7 @@ D 对测量求导，避免目标阶跃引起 derivative kick；恒定目标时�
 - **Insufficient excitation / poor fit**：检查功率上限、负载摩擦、编码器噪声和两台电机是否一致。模型验证不通过时不会进入带载射击。
 - **No power headroom**：降低目标速度，或在硬件允许范围内提高最大功率。
 - **No shot load detected**：检查是否空仓，以及一个 feed pulse 是否真的把一发送进飞轮。排障后先 Stop，再重新执行完整流程。
-- **网页打不开**：确认 DS 已 INIT 此 OpMode、Wi-Fi 和 RC IP 正确、URL 是 `http://...:8081`、没有端口冲突。DS STOP 后页面不可访问是正常现象。
+- **网页打不开**：确认 DS 已 INIT 此 OpMode、Wi-Fi 和 RC IP 正确、URL 使用 DS telemetry 显示的端口（默认 8082）。DS STOP 后页面不可访问是正常现象。
 - **网页接受命令但没动作**：看 Command 状态；电机操作需要 DS START、已保存配置和有效网页心跳。
 - **Gradle 找不到依赖**：见[安装](#方式一远程-maven-安装推荐)末尾的检查方法。
 - **结果差异**：本库辨识空载机构，再通过真实射击优化恢复；它没有弹丸速度传感器，也不标定投射距离或命中率。
@@ -311,7 +311,7 @@ ftc-library/  (io.github.oleslieo:shooter-autotune, Android AAR)
 ```bash
 ./gradlew :tuner-core:check :ftc-library:assembleRelease
 ./gradlew :tuner-core:publish :ftc-library:publish
-python3 scripts/verify-publication.py build/maven 0.1.0
+python3 scripts/verify-publication.py build/maven 0.1.1
 ```
 
 Windows 使用 `gradlew.bat` 和 `py -3`。`:tuner-core:check` 运行硬件无关的模拟测试，覆盖：已知模型的参数辨识、单/双飞轮完整状态流程、真实 feeder 脉冲与指标、空仓拒绝、积分抗饱和、电压补偿、停机和安全限值。`publish` 只写本地 `build/maven`，不会上传。

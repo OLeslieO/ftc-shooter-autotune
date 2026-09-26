@@ -15,7 +15,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import fi.iki.elonen.NanoHTTPD;
 
 public final class AutoTuneWebServer extends NanoHTTPD {
-    public static final int PORT = 8081;
+    /** 8080/8081 belong to the Robot Controller web console and its WebSocket; 8000/8001 to FTC Dashboard and Panels. */
+    public static final int[] PORTS = {8082, 8083, 8084};
+    public final int port;
     public static final class Command {
         public final String action;
         public final JSONObject body;
@@ -35,9 +37,26 @@ public final class AutoTuneWebServer extends NanoHTTPD {
     private volatile String state = "{}";
     private volatile String exported = "";
 
-    public AutoTuneWebServer(AssetManager assets) {
-        super(PORT);
+    public AutoTuneWebServer(AssetManager assets, int port) {
+        super(port);
+        this.port = port;
         this.assets = assets;
+    }
+
+    /** Binds the first free port in {@link #PORTS}; the RC itself already listens on 8080 and 8081. */
+    public static AutoTuneWebServer open(AssetManager assets) throws IOException {
+        IOException last = null;
+        for (int candidate : PORTS) {
+            AutoTuneWebServer server = new AutoTuneWebServer(assets, candidate);
+            try {
+                server.start(1000, true);
+                return server;
+            } catch (IOException failure) {
+                server.stop();
+                last = failure;
+            }
+        }
+        throw new IOException("No free web port in " + java.util.Arrays.toString(PORTS) + ": " + last.getMessage(), last);
     }
 
     @Override
