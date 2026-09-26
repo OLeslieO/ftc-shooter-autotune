@@ -14,7 +14,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
       - run: sdkmanager 'platforms;android-30' 'build-tools;35.0.0'
       - uses: gradle/actions/setup-gradle@v4
       - run: bash gradlew --no-daemon :tuner-core:check :ftc-library:assembleRelease :tuner-core:publish :ftc-library:publish
