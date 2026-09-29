@@ -28,6 +28,7 @@
     <h3>3. Loaded shots</h3>
     <p id="shot-plan">Three candidates plus fresh verification, with multiple shots each. Every feed pulse must deliver one game piece into a safe capture area.</p>
     <div class="actions"><label><input id="armed" type="checkbox"> Game pieces loaded; firing area clear</label><button id="loaded" type="button">Arm and run loaded tests</button></div>
+    <p>Once armed, hold <strong>gamepad1.right_bumper</strong> to feed each shot as soon as the phase/message above says the shooter is ready; release to stop feeding. There is no automatic overspeed, current, or session-time shutoff and no automatic feed pulse — Driver Station Stop and the webpage Stop button are the only stops.</p>
   </section>
   <section aria-labelledby="live-heading">
     <h2 id="live-heading">Live telemetry</h2>
@@ -48,7 +49,7 @@
   </section>
   <section aria-labelledby="test-heading">
     <h2 id="test-heading">5. Test</h2>
-    <p>Uses this session’s validated gains, or the six SHOOTER_K* fields compiled from shooter/Constants.java. Hold gamepad1.right_bumper to start feeding once all shooter motors are within 10% of target. Feeding then stays on through velocity dips until you release the bumper; safety limits and Stop always override it.</p>
+    <p>Uses this session’s validated gains, or the six SHOOTER_K* fields compiled from shooter/Constants.java. Hold gamepad1.right_bumper to start feeding once all shooter motors are within 10% of target. Feeding then stays on through velocity dips until you release the bumper; Driver Station Stop or the webpage Stop button always override it. There is no automatic overspeed, current, or power-cap protection.</p>
     <button id="test" type="button">Start Test</button>
   </section>
 </main>

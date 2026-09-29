@@ -34,7 +34,6 @@ public final class AutoTuneManager {
     private double[] powers = new double[0];
     private double[] currents = new double[0];
     private double[] stalledFor;
-    private double[] currentFor;
     private double battery;
     private double target;
     private double elapsed;
@@ -96,7 +95,6 @@ public final class AutoTuneManager {
         for (int index = 0; index < count; index++) controllers[index] = new VelocityController();
         powers = new double[count];
         stalledFor = new double[count];
-        currentFor = new double[count + 1];
         phase = Phase.IDLE;
         message = "Configured. Check directions at low power, then start unloaded tuning.";
     }
@@ -134,7 +132,7 @@ public final class AutoTuneManager {
         if (phase != Phase.AWAIT_LOAD) throw new IllegalStateException("Finish unloaded tuning first");
         begin(now);
         beginSearch(Phase.LOADED, PIDTuner.loadedCandidates(gains));
-        message = "Loaded optimization: three candidates, then fresh verification shots";
+        message = "Loaded optimization: hold gamepad1.right_bumper to feed each shot once ready";
     }
 
     public void startTest(Gains constants, double now) {
@@ -161,7 +159,6 @@ public final class AutoTuneManager {
             powers[index] = 0;
             stalledFor[index] = 0;
         }
-        for (int index = 0; index < currentFor.length; index++) currentFor[index] = 0;
     }
 
     public void update(double now, boolean robotActive, boolean browserAlive, boolean rightBumper) {
@@ -175,20 +172,19 @@ public final class AutoTuneManager {
             if (!busy()) return;
             if (!robotActive || !browserAlive) throw new IllegalStateException("Stopped: Driver Station or browser disconnected");
             if (!(seconds > 0 && seconds <= 0.2)) throw new IllegalStateException("Control loop missed its 200 ms deadline");
-            if (now - runStart > config.maxRunSeconds) throw new IllegalStateException("Session time limit reached");
             safety(seconds);
             elapsed += seconds;
             if (phase == Phase.DIRECTION) {
                 if (elapsed >= 0.3) stop("Direction pulse complete; visually check the selected motor");
                 else {
-                    double pulsePower = Math.min(0.12, config.maxPower);
+                    double pulsePower = 0.12;
                     hardware.directionPulse(directionMotor, pulsePower);
                     if (directionMotor < powers.length) powers[directionMotor] = pulsePower;
                 }
             } else if (phase == Phase.IDENTIFY) {
                 identify(seconds);
             } else if (phase == Phase.LOADED || phase == Phase.VERIFY) {
-                loaded(seconds);
+                loaded(seconds, rightBumper);
             } else if (phase == Phase.TEST) {
                 control(config.targetVelocity, seconds);
                 manualFeeding = rightBumper && (manualFeeding || atSpeed(0.1));
@@ -209,17 +205,15 @@ public final class AutoTuneManager {
         }
         for (int motor = 0; motor < velocities.length; motor++) {
             double velocity = velocities[motor];
-            if (!Double.isFinite(velocity) || Math.abs(velocity) > config.maxVelocity) throw new IllegalStateException("Shooter overspeed/invalid encoder: " + motor);
+            if (!Double.isFinite(velocity)) throw new IllegalStateException("Invalid shooter encoder reading: " + motor);
             if (phase != Phase.DIRECTION && velocity < -50) throw new IllegalStateException("Negative shooter encoder: check motor direction");
             stalledFor[motor] = powers[motor] > 0.2 && Math.abs(velocity) < 30 ? stalledFor[motor] + seconds : 0;
             if (stalledFor[motor] > 0.8) throw new IllegalStateException("Shooter stall/encoder disconnected: " + motor);
         }
         double feederVelocity = hardware.preshooterVelocity();
-        if (!Double.isFinite(feederVelocity) || Math.abs(feederVelocity) > config.maxPreshooterVelocity) throw new IllegalStateException("Preshooter overspeed/invalid encoder");
+        if (!Double.isFinite(feederVelocity)) throw new IllegalStateException("Invalid preshooter encoder reading");
         for (int motor = 0; motor < currents.length; motor++) {
-            if (!Double.isFinite(currents[motor]) || currents[motor] < 0) throw new IllegalStateException("Invalid motor current");
-            currentFor[motor] = currents[motor] > config.maxCurrentAmps ? currentFor[motor] + seconds : 0;
-            if (currentFor[motor] >= 0.15) throw new IllegalStateException("Motor current limit: " + motor);
+            if (!Double.isFinite(currents[motor]) || currents[motor] < 0) throw new IllegalStateException("Invalid motor current reading: " + motor);
         }
     }
 
@@ -244,14 +238,14 @@ public final class AutoTuneManager {
         int step = (int) (elapsed / 1.6);
         if (step >= levels.length) {
             gains = identification.fit();
-            if (gains.kS + gains.kV * config.targetVelocity > battery * config.maxPower * 0.9) {
-                throw new IllegalStateException("Target lacks power headroom; lower target or revise power limit");
+            if (gains.kS + gains.kV * config.targetVelocity > battery * 0.9) {
+                throw new IllegalStateException("Target lacks power headroom; lower target velocity");
             }
             trials.add("Identification R²=" + identification.fitQuality);
             beginSearch(Phase.FEEDFORWARD, Collections.singletonList(gains));
             return;
         }
-        for (int motor = 0; motor < powers.length; motor++) powers[motor] = levels[step] * config.maxPower;
+        for (int motor = 0; motor < powers.length; motor++) powers[motor] = levels[step];
         hardware.shooterPowers(powers);
     }
 
@@ -367,22 +361,26 @@ public final class AutoTuneManager {
         }
     }
 
-    private void loaded(double seconds) {
+    private void loaded(double seconds, boolean rightBumper) {
         if (coasting(seconds)) return;
         control(config.targetVelocity, seconds);
         if (!observingShot) {
             readyFor = atSpeed(0.05) ? readyFor + seconds : 0;
             if (elapsed > 8) throw new IllegalStateException("Shooter could not reach shot-ready velocity");
             if (readyFor >= 0.35) {
-                shotTest = new LoadedShotTest(config, velocities);
-                observingShot = true;
-                elapsed = 0;
-                hardware.feed(true);
-                message = phase + ": candidate " + (candidateIndex + 1) + ", shot " + (shotIndex + 1) + "/" + config.shots;
+                message = phase + ": candidate " + (candidateIndex + 1) + ", shot " + (shotIndex + 1) + "/" + config.shots
+                        + " ready; hold gamepad1.right_bumper to feed";
+                if (rightBumper) {
+                    shotTest = new LoadedShotTest(config, velocities);
+                    observingShot = true;
+                    elapsed = 0;
+                    hardware.feed(true);
+                    message = phase + ": candidate " + (candidateIndex + 1) + ", shot " + (shotIndex + 1) + "/" + config.shots + " feeding";
+                }
             }
             return;
         }
-        hardware.feed(elapsed < config.feedSeconds);
+        hardware.feed(rightBumper);
         shotTest.sample(velocities, seconds);
         if (elapsed < config.recoverySeconds) return;
         hardware.feed(false);
@@ -417,7 +415,7 @@ public final class AutoTuneManager {
         double acceleration = (target - previousTarget) / seconds;
         for (int motor = 0; motor < powers.length; motor++) {
             powers[motor] = controllers[motor].update(gains, target, acceleration,
-                    velocities[motor], seconds, battery, config.maxPower);
+                    velocities[motor], seconds, battery, 1);
         }
         hardware.shooterPowers(powers);
     }

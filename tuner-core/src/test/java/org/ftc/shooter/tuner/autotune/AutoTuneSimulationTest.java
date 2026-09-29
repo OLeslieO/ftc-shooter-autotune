@@ -154,12 +154,12 @@ public final class AutoTuneSimulationTest {
         fixture.manager.startTest(MODEL, 0);
         fixture.plant.velocity[0] = 3000;
         fixture.manager.update(0.02, true, true, false);
-        check(fixture.manager.phase() == AutoTuneManager.Phase.FAULT, "overspeed stop");
+        check(fixture.manager.phase() != AutoTuneManager.Phase.FAULT, "overspeed no longer stops (protection intentionally removed)");
         fixture = new Fixture(false);
         fixture.manager.startTest(MODEL, 0);
         fixture.plant.current = 30;
         fixture.tick(0.3, false);
-        check(fixture.manager.phase() == AutoTuneManager.Phase.FAULT && fixture.plant.stopped(), "overcurrent stop");
+        check(fixture.manager.phase() != AutoTuneManager.Phase.FAULT, "overcurrent no longer stops (protection intentionally removed)");
         fixture = new Fixture(false);
         fixture.manager.startTest(MODEL, 0);
         fixture.plant.battery = 9;
@@ -210,10 +210,11 @@ public final class AutoTuneSimulationTest {
         }
 
         void until(AutoTuneManager.Phase desired, double limit) {
+            // Loaded/verify shots require a held bumper to feed; harmless elsewhere since only those phases read it.
             double deadline = time + limit;
             while (time < deadline && manager.phase() != desired) {
                 if (manager.phase() == AutoTuneManager.Phase.FAULT) throw new AssertionError(manager.message());
-                tick(0.02, false);
+                tick(0.02, true);
             }
             check(manager.phase() == desired, "phase " + desired + "; got " + manager.phase() + " / " + manager.message());
         }

@@ -84,8 +84,8 @@ public final class FtcShooterHardware implements ShooterHardware {
     public void shooterPowers(double[] powers) {
         if (powers.length != shooters.length) throw new IllegalArgumentException("Motor count mismatch");
         for (int motor = 0; motor < shooters.length; motor++) {
-            if (!Double.isFinite(powers[motor]) || powers[motor] < 0 || powers[motor] > config.maxPower) {
-                throw new IllegalArgumentException("Power outside configured limits");
+            if (!Double.isFinite(powers[motor]) || powers[motor] < 0 || powers[motor] > 1) {
+                throw new IllegalArgumentException("Power outside 0-1 range");
             }
             shooters[motor].setPower(powers[motor]);
         }

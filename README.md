@@ -4,7 +4,7 @@
 
 - 源码仓库：<https://github.com/OLeslieO/ftc-shooter-autotune>
 - Maven 仓库：`https://oleslieo.github.io/ftc-shooter-autotune/maven/`
-- 当前版本：**0.1.1**（`io.github.oleslieo:shooter-autotune:0.1.1`）
+- 当前版本：**0.1.2**（`io.github.oleslieo:shooter-autotune:0.1.2`）
 
 运行时无需电脑端服务器、Node.js、云服务或互联网。网页由 Robot Controller 上的 OpMode 在端口 **8082** 提供（被占用时自动改用 8083、8084，DS telemetry 显示实际地址），网页资源随 APK 一起安装。只有首次 Gradle 下载依赖时需要互联网。
 
@@ -52,10 +52,10 @@ allprojects {
 **第 2 步：添加依赖。** 在 `TeamCode/build.gradle` 的 `dependencies` 块中加入：
 
 ```gradle
-implementation 'io.github.oleslieo:shooter-autotune:0.1.1'
+implementation 'io.github.oleslieo:shooter-autotune:0.1.2'
 ```
 
-这个 AAR 会自动带上核心库 `io.github.oleslieo:shooter-autotune-core:0.1.1` 和网页资源，不需要再单独声明。
+这个 AAR 会自动带上核心库 `io.github.oleslieo:shooter-autotune-core:0.1.2` 和网页资源，不需要再单独声明。
 
 **第 3 步：复制入口文件。** 把本仓库 `examples/teamcode/shooter/` 下的 **`Tuning.java`** 和 **`Constants.java`** 复制到目标工程：
 
@@ -90,7 +90,7 @@ public final class Tuning extends ShooterAutoTuneOpMode {
 如果 Sync 报 `Could not find io.github.oleslieo:shooter-autotune`，先在浏览器确认下面的地址能打开，再运行 `./gradlew --refresh-dependencies :TeamCode:assembleDebug` 清掉 Gradle 缓存的 404：
 
 ```text
-https://oleslieo.github.io/ftc-shooter-autotune/maven/io/github/oleslieo/shooter-autotune/0.1.1/shooter-autotune-0.1.1.pom
+https://oleslieo.github.io/ftc-shooter-autotune/maven/io/github/oleslieo/shooter-autotune/0.1.2/shooter-autotune-0.1.2.pom
 ```
 
 ### 方式二：本地源码安装（改库源码时使用）
@@ -116,7 +116,7 @@ implementation project(':external:ftc-shooter-autotune:ftc-library')
 
 ### 升级版本
 
-把 `implementation 'io.github.oleslieo:shooter-autotune:0.1.1'` 的版本号改为新版本后重新 Sync。可用版本列表见 [maven-metadata.xml](https://oleslieo.github.io/ftc-shooter-autotune/maven/io/github/oleslieo/shooter-autotune/maven-metadata.xml)。已发布版本不会被覆盖。
+把 `implementation 'io.github.oleslieo:shooter-autotune:0.1.2'` 的版本号改为新版本后重新 Sync。可用版本列表见 [maven-metadata.xml](https://oleslieo.github.io/ftc-shooter-autotune/maven/io/github/oleslieo/shooter-autotune/maven-metadata.xml)。已发布版本不会被覆盖。
 
 ## 使用方法
 
@@ -126,7 +126,7 @@ implementation project(':external:ftc-shooter-autotune:ftc-library')
 
 1. Driver Station 选择 **`Shooter AutoTune`**，按 **INIT**。此时启动网页服务，不会转动电机。
 2. 电脑或手机连接机器人的 Wi-Fi。
-3. 用 `http`（不是 `https`）打开：
+3. 用 `http`打开：
    - Control Hub：`http://192.168.43.1:8082`
    - 手机 Robot Controller 的 Wi-Fi Direct：通常为 `http://192.168.49.1:8082`
    - 若机器人地址不同，用实际 RC 地址。DS 的 telemetry 会显示实际地址和端口。不要用 8080 或 8081，那是 RC 自己的网页控制台和 WebSocket 端口，打开会看到 RC 页面或 `websocket upgrade failure`。
@@ -138,7 +138,7 @@ implementation project(':external:ftc-shooter-autotune:ftc-library')
 
 1. 选择 Single / Dual 布局，填写电机名称和方向。
 2. 选择 preshooter 的 Power 或 Velocity 模式，并设置对应数值。
-3. 填入目标速度和安全限值，按 **Save configuration**。
+3. 填入目标速度，按 **Save configuration**。
 4. 按 DS **START**，逐个选择电机，按 **Pulse selected motor**。
 5. 方向测试只运行 **0.3 秒、最大 0.12 功率**。肉眼确认旋转方向，并确认射手正转时编码器读到正速度。有问题就改方向重新保存。
 
@@ -150,22 +150,12 @@ implementation project(':external:ftc-shooter-autotune:ftc-library')
 | --- | --- | --- |
 | Shooter 1 / 2 名称与方向 | `shooterUp` REVERSE / `shooterDown` FORWARD | 与 RC 硬件配置中的名称一致 |
 | Preshooter 名称与方向 | `preShooter` FORWARD | |
-| Target velocity | 1440 | 编码器 ticks/s，不是 RPM |
-| Shooter overspeed limit | 2400 | 任一射手超过即停止 |
-| Preshooter overspeed limit | 2500 | 预送弹器编码器速度限值 |
-| Maximum shooter power | 0.85 | 输出上限，0–1 |
-| Current limit per motor | 8 A | 包括 preshooter；超限持续 150 ms 停止 |
+| Target velocity | 1440 ticks/s |  |
 | Minimum battery voltage | 10.5 V | 电压过低或无有效读数时停止 |
 | Target ramp | 3000 ticks/s² | 软件目标速度斜坡，提供加速度前馈输入 |
 | Preshooter demand | 0.6 | Power 模式为 0–1；Velocity 模式为 ticks/s |
-| Feed pulse | 0.2 s | 每次真实送弹的持续时间 |
 | Observe each shot | 2.5 s | 从送弹开始记录到窗口结束 |
 | Shots per candidate | 3 | 每组参数至少 2 发，最多 8 发 |
-| Session time limit | 300 s | 空载、带载和 Test 各自的时间限制 |
-
-目标速度必须低于安全速度限值，并保留至少约 10% 的维持转速功率余量。默认限值只是起点，要按电机额定速度、电流、齿比和实际机构设置。
-
-RPM 换算：`ticks/s = motorRPM × encoderTicksPerMotorRevolution / 60`。如果按飞轮 RPM 计算，先按传动比换成电机轴 RPM。
 
 ### 3. PIDFTuner：空载调参
 
@@ -184,11 +174,11 @@ RPM 换算：`ticks/s = motorRPM × encoderTicksPerMotorRevolution / 60`。如�
 
 ### 4. 带载优化：真实触发 preshooter
 
-在 **AWAIT_LOAD** 装好物体，安排安全的接收区域，确认 feeder 一次脉冲只送一发。勾选 **Game pieces loaded; firing area clear**，按 **Arm and run loaded tests**。
+在 **AWAIT_LOAD** 装好物体，安排安全的接收区域，确认一次手动送弹只送一发。勾选 **Game pieces loaded; firing area clear**，按 **Arm and run loaded tests**。
 
-每组参数先让所有射手在目标速度 ±5% 内稳定至少 0.35 秒，再真实驱动 preshooter。程序比较当前增益及 `kP × 1.2`、`kP × 0.8`；若空载最佳 `kP = 0`，则按模型生成两个非零反馈候选。选出最好的参数后，再用新的一组射击做 **VERIFY**。
+每组参数先让所有射手在目标速度 ±5% 内稳定至少 0.35 秒。稳定后网页 phase/message 会显示 "ready; hold gamepad1.right_bumper to feed"，此时**按住 `gamepad1.right_bumper` 手动送弹，松开停止**；送弹时长完全由你按住的时间决定，库不会自动掐断，也不会自动开始。程序比较当前增益及 `kP × 1.2`、`kP × 0.8`；若空载最佳 `kP = 0`，则按模型生成两个非零反馈候选。选出最好的参数后，再用新的一组射击做 **VERIFY**。
 
-默认需要 **3 组 × 3 发 + 3 发验证 = 12 发**。供弹能力不足时先调整机构或实验配置；飞轮运转时不要接触机构。
+默认需要 **3 组 × 3 发 + 3 发验证 = 12 发**，每一发都需要你在"ready"提示后手动按一次右肩键，不是全自动连发。供弹能力不足时先调整机构或实验配置；飞轮运转时不要接触机构。
 
 每发、每个射手电机分别记录：
 
@@ -227,7 +217,7 @@ public static double SHOOTER_KD = ...;
 
 - 同一会话调参成功后，可直接按 **Start Test**，使用刚验证的参数。
 - 粘贴常量并重新安装后，重新 INIT → Save configuration → DS START → **Start Test**，此时使用编译进 `Constants.java` 的六个字段。
-- **`gamepad1.right_bumper`** 手动启动 preshooter；首次送弹需要所有射手在目标速度 ±10% 内。按住期间持续送弹，松开停止。安全限值或 Stop 始终优先。
+- **`gamepad1.right_bumper`** 手动启动 preshooter；首次送弹需要所有射手在目标速度 ±10% 内。按住期间持续送弹，松开停止。库没有自动的超速或过流保护，Driver Station Stop 和网页 **Stop all motors** 是唯一的强制停止手段。
 - 网页持续显示目标/实际速度、每台电机功率、电流、供电电压、阶段和逐发数据。网页 Stop 或 DS Stop 均停止输出。
 
 ### 7. 在比赛代码中使用常量
@@ -244,7 +234,7 @@ commandVolts = kS·sign(targetVelocity)
              + kI·integral(error)
              − kD·filteredMeasuredAcceleration
 
-motorPower = clamp(commandVolts / measuredBatteryVoltage, 0, maxPower)
+motorPower = clamp(commandVolts / measuredBatteryVoltage, 0, 1)
 ```
 
 | 常量 | 单位 |
@@ -262,11 +252,11 @@ D 对测量求导，避免目标阶跃引起 derivative kick；恒定目标时�
 
 - **Browser disconnected**：1.5 秒收不到心跳即停止。不要切换到其他标签页或让手机锁屏；页面隐藏时还会主动请求 Stop。
 - **Loop missed deadline**：两次控制更新间隔超过 200 ms 时停止。这是软件检测，不是独立硬件 watchdog；DS STOP 和 Hub 自身保护仍然是最后防线。
-- **Overspeed / current / battery / stall**：检查安全限值、编码器和机构。射手功率大于 0.2 且速度低于 30 ticks/s 持续 0.8 秒视为堵转或编码器故障。
+- **Battery / stall**：低于 Minimum battery voltage 或无有效读数时停止；射手功率大于 0.2 且速度低于 30 ticks/s 持续 0.8 秒视为堵转或编码器故障并停止。这两项保留，未受本次改动影响。
 - **Negative encoder**：检查方向和接线，不要用取绝对值掩盖问题。
-- **Insufficient excitation / poor fit**：检查功率上限、负载摩擦、编码器噪声和两台电机是否一致。模型验证不通过时不会进入带载射击。
-- **No power headroom**：降低目标速度，或在硬件允许范围内提高最大功率。
-- **No shot load detected**：检查是否空仓，以及一个 feed pulse 是否真的把一发送进飞轮。排障后先 Stop，再重新执行完整流程。
+- **Insufficient excitation / poor fit**：检查负载摩擦、编码器噪声和两台电机是否一致。模型验证不通过时不会进入带载射击。
+- **No power headroom**：降低目标速度；控制器功率上限固定为 1.0（满功率），无法再调整。
+- **No shot load detected**：检查是否空仓，以及手动送弹时是否真的把一发送进飞轮。排障后先 Stop，再重新执行完整流程。
 - **网页打不开**：确认 DS 已 INIT 此 OpMode、Wi-Fi 和 RC IP 正确、URL 使用 DS telemetry 显示的端口（默认 8082）。DS STOP 后页面不可访问是正常现象。
 - **网页接受命令但没动作**：看 Command 状态；电机操作需要 DS START、已保存配置和有效网页心跳。
 - **Gradle 找不到依赖**：见[安装](#方式一远程-maven-安装推荐)末尾的检查方法。
@@ -311,7 +301,7 @@ ftc-library/  (io.github.oleslieo:shooter-autotune, Android AAR)
 ```bash
 ./gradlew :tuner-core:check :ftc-library:assembleRelease
 ./gradlew :tuner-core:publish :ftc-library:publish
-python3 scripts/verify-publication.py build/maven 0.1.1
+python3 scripts/verify-publication.py build/maven 0.1.2
 ```
 
 Windows 使用 `gradlew.bat` 和 `py -3`。`:tuner-core:check` 运行硬件无关的模拟测试，覆盖：已知模型的参数辨识、单/双飞轮完整状态流程、真实 feeder 脉冲与指标、空仓拒绝、积分抗饱和、电压补偿、停机和安全限值。`publish` 只写本地 `build/maven`，不会上传。

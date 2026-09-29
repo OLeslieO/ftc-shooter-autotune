@@ -8,16 +8,10 @@ const fields = [
   ['preshooter', 'Preshooter motor name', 'text'], ['preshooterReversed', 'Preshooter direction', 'direction'],
   ['preshooterVelocityMode', 'Preshooter control mode', 'mode'], ['preshooterDemand', 'Preshooter power (0–1) or ticks/s', 'number', 0.01, 30000],
   ['targetVelocity', 'Target velocity (ticks/s)', 'number', 100, 26000],
-  ['maxVelocity', 'Shooter overspeed limit (ticks/s)', 'number', 100, 30000],
-  ['maxPreshooterVelocity', 'Preshooter overspeed limit (ticks/s)', 'number', 100, 30000],
-  ['maxPower', 'Maximum shooter power (0–1)', 'number', 0.15, 1],
-  ['maxCurrentAmps', 'Current limit per motor (A)', 'number', 0.5, 20],
   ['minBatteryVolts', 'Minimum battery voltage (V)', 'number', 9, 14],
   ['targetAcceleration', 'Target ramp (ticks/s²)', 'number', 100, 20000],
-  ['feedSeconds', 'Feed pulse (seconds)', 'number', 0.05, 0.6],
   ['recoverySeconds', 'Observe each shot (seconds)', 'number', 1, 5],
-  ['shots', 'Shots per candidate', 'number', 2, 8],
-  ['maxRunSeconds', 'Session time limit (seconds)', 'number', 30, 600]
+  ['shots', 'Shots per candidate', 'number', 2, 8]
 ];
 let state = {};
 let initialized = false;
