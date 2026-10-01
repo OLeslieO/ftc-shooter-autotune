@@ -5,8 +5,12 @@ import java.util.Collections;
 import java.util.List;
 
 public final class AutoTuneManager {
-    /** Each unloaded trial holds its target this long; heavy flywheels with a 1-2 s time constant need it to settle. */
+    /** Each scored PID trial holds its target this long so candidates are compared over equal windows. */
     public static final double TRIAL_SECONDS = 6;
+    /** FEEDFORWARD segments instead run until the velocity is steady: consecutive blocks of this length agree. */
+    public static final double SETTLE_BLOCK_SECONDS = 1.5;
+    public static final int SETTLE_MIN_BLOCKS = 3;
+    public static final double SETTLE_MAX_SECONDS = 25;
     /** Time allowed for the flywheel to coast below 50 ticks/s between trials. */
     public static final double COAST_SECONDS = 20;
     public enum Phase { IDLE, DIRECTION, IDENTIFY, FEEDFORWARD, KP, KD, KI, AWAIT_LOAD, LOADED, VERIFY, READY, TEST, FAULT }
@@ -50,9 +54,11 @@ public final class AutoTuneManager {
     /** First FEEDFORWARD pass: measure steady states and refit kS/kV from them instead of judging the transient model. */
     private boolean calibrating;
     private final List<double[]> steadyPoints = new ArrayList<>();
-    private double[] tailVelocity;
-    private double[] tailVoltage;
-    private double tailWeight;
+    private double[] blockVelocity;
+    private double[] blockVoltage;
+    private double blockWeight;
+    private double[] previousBlock;
+    private int blocks;
     private List<Gains> candidates;
     private int candidateIndex;
     private Gains best;
@@ -281,7 +287,7 @@ public final class AutoTuneManager {
         trialOvershoot = 0;
         trialBias = 0;
         coast = true;
-        message = phase == Phase.FEEDFORWARD && calibrating ? "FEEDFORWARD: measuring steady states at 55/80/100% target"
+        message = phase == Phase.FEEDFORWARD ? "FEEDFORWARD " + (calibrating ? "calibration" : "validation") + ": coasting down"
                 : phase + ": candidate " + (candidateIndex + 1) + "/" + candidates.size();
     }
 
@@ -307,9 +313,15 @@ public final class AutoTuneManager {
     }
 
     private void newRecorders() {
-        tailVelocity = new double[powers.length];
-        tailVoltage = new double[powers.length];
-        tailWeight = 0;
+        blockVelocity = new double[powers.length];
+        blockVoltage = new double[powers.length];
+        blockWeight = 0;
+        previousBlock = null;
+        blocks = 0;
+        if (phase == Phase.FEEDFORWARD) {
+            message = String.format(java.util.Locale.US, "FEEDFORWARD %s at %.0f ticks/s: waiting for a steady velocity",
+                    calibrating ? "calibration" : "validation", trialTarget());
+        }
         recorders = new PerformanceMetrics.Recorder[powers.length];
         for (int motor = 0; motor < recorders.length; motor++) {
             recorders[motor] = new PerformanceMetrics.Recorder(trialTarget(), velocities[motor], TRIAL_SECONDS,
@@ -321,31 +333,70 @@ public final class AutoTuneManager {
         if (coasting(seconds)) return;
         control(trialTarget(), seconds);
         for (int motor = 0; motor < recorders.length; motor++) recorders[motor].add(velocities[motor], seconds);
-        if (elapsed >= TRIAL_SECONDS * 0.8) {
+        if (phase == Phase.FEEDFORWARD) {
             for (int motor = 0; motor < powers.length; motor++) {
-                tailVelocity[motor] += velocities[motor] * seconds;
-                tailVoltage[motor] += powers[motor] * battery * seconds;
+                blockVelocity[motor] += velocities[motor] * seconds;
+                blockVoltage[motor] += powers[motor] * battery * seconds;
             }
-            tailWeight += seconds;
+            blockWeight += seconds;
+            if (blockWeight < SETTLE_BLOCK_SECONDS) return;
+            double[] meanVelocity = new double[powers.length];
+            double[] meanVoltage = new double[powers.length];
+            double change = 0;
+            for (int motor = 0; motor < powers.length; motor++) {
+                meanVelocity[motor] = blockVelocity[motor] / blockWeight;
+                meanVoltage[motor] = blockVoltage[motor] / blockWeight;
+                if (previousBlock != null) change = Math.max(change, Math.abs(meanVelocity[motor] - previousBlock[motor]));
+            }
+            blocks++;
+            double tolerance = Math.max(25, 0.015 * trialTarget());
+            boolean settled = blocks >= SETTLE_MIN_BLOCKS && change <= tolerance;
+            if (!settled && elapsed < SETTLE_MAX_SECONDS) {
+                message = String.format(java.util.Locale.US, "FEEDFORWARD %s at %.0f ticks/s: %.0f ticks/s, still changing %.0f per %.1f s",
+                        calibrating ? "calibration" : "validation", trialTarget(), meanVelocity[0], change, SETTLE_BLOCK_SECONDS);
+                previousBlock = meanVelocity;
+                blockVelocity = new double[powers.length];
+                blockVoltage = new double[powers.length];
+                blockWeight = 0;
+                return;
+            }
+            if (!settled) {
+                throw new IllegalStateException(String.format(java.util.Locale.US,
+                        "Velocity did not settle within %.0f s at %.0f ticks/s (still changing %.0f ticks/s per %.1f s); check for a slipping drive or loose encoder",
+                        SETTLE_MAX_SECONDS, trialTarget(), change, SETTLE_BLOCK_SECONDS));
+            }
+            endSegment(meanVelocity, meanVoltage);
+            return;
         }
         if (elapsed < TRIAL_SECONDS) return;
-        if (phase == Phase.FEEDFORWARD && calibrating) {
+        endSegment(null, null);
+    }
+
+    /** Closes one speed segment; {@code steadyVelocity}/{@code steadyVoltage} are the settled block means for FEEDFORWARD. */
+    private void endSegment(double[] steadyVelocity, double[] steadyVoltage) {
+        if (phase == Phase.FEEDFORWARD) {
             for (int motor = 0; motor < powers.length; motor++) {
-                double steadyVelocity = tailVelocity[motor] / tailWeight;
-                if (steadyVelocity < 100) {
-                    throw new IllegalStateException(String.format(java.util.Locale.US,
-                            "Shooter %d reached only %.0f ticks/s with %.1f V of feedforward; check directions and encoders",
-                            motor + 1, steadyVelocity, tailVoltage[motor] / tailWeight));
+                if (calibrating) {
+                    if (steadyVelocity[motor] < 100) {
+                        throw new IllegalStateException(String.format(java.util.Locale.US,
+                                "Shooter %d reached only %.0f ticks/s with %.1f V of feedforward; check directions and encoders",
+                                motor + 1, steadyVelocity[motor], steadyVoltage[motor]));
+                    }
+                    steadyPoints.add(new double[]{steadyVelocity[motor], steadyVoltage[motor]});
+                    trials.add(String.format(java.util.Locale.US, "Calibration point: target %.0f, shooter %d steady at %.0f ticks/s with %.2f V (%.1f s)",
+                            trialTarget(), motor + 1, steadyVelocity[motor], steadyVoltage[motor], elapsed));
+                } else {
+                    double steadyError = Math.abs(trialTarget() - steadyVelocity[motor]);
+                    if (steadyError / trialTarget() > 0.15) {
+                        throw new IllegalStateException(String.format(java.util.Locale.US,
+                                "Feedforward validation failed at %.0f ticks/s: shooter %d settled at %.0f ticks/s with %.2f V",
+                                trialTarget(), motor + 1, steadyVelocity[motor], steadyVoltage[motor]));
+                    }
                 }
-                steadyPoints.add(new double[]{steadyVelocity, tailVoltage[motor] / tailWeight});
             }
         }
         for (PerformanceMetrics.Recorder recorder : recorders) {
             PerformanceMetrics metrics = recorder.finish();
-            if (phase == Phase.FEEDFORWARD && !calibrating && metrics.steadyError / trialTarget() > 0.15) {
-                throw new IllegalStateException(String.format(java.util.Locale.US,
-                        "Feedforward validation failed at %.0f ticks/s: steady error %.0f ticks/s", trialTarget(), metrics.steadyError));
-            }
             trialScore += metrics.score(trialTarget()) / powers.length / 3;
             trialOvershoot = Math.max(trialOvershoot, metrics.overshoot / trialTarget());
             trialBias = Math.max(trialBias, metrics.steadyError / trialTarget());
@@ -414,9 +465,13 @@ public final class AutoTuneManager {
         if (variance < 1e4) throw new IllegalStateException("Steady-state calibration lacks speed spread; check that the shooter follows the target");
         double velocityGain = covariance / variance;
         double staticGain = meanVoltage - velocityGain * meanVelocity;
-        if (velocityGain <= 0 || staticGain < -0.4 || staticGain > 4) {
+        StringBuilder points = new StringBuilder();
+        for (double[] point : steadyPoints) points.append(String.format(java.util.Locale.US, " (%.0f ticks/s, %.2f V)", point[0], point[1]));
+        // A heavy belt-driven wheel can genuinely need several volts to turn, so the static limit scales with the pack.
+        if (velocityGain <= 0 || staticGain < -0.4 || staticGain > battery * 0.5) {
             throw new IllegalStateException(String.format(java.util.Locale.US,
-                    "Nonphysical steady-state calibration (kS=%.2f V, kV=%.5f); check encoders and directions", staticGain, velocityGain));
+                    "Nonphysical steady-state calibration (kS=%.2f V, kV=%.5f) from points%s; check encoders and directions",
+                    staticGain, velocityGain, points));
         }
         double timeConstant = identification.timeConstant > 0 ? identification.timeConstant : gains.kA / gains.kV;
         gains = new Gains(Math.max(0, staticGain), velocityGain, velocityGain * timeConstant, 0, 0, 0);

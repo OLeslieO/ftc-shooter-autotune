@@ -13,6 +13,7 @@ public final class AutoTuneSimulationTest {
         fullSession(false);
         fullSession(true);
         dragSession();
+        heavySession();
         missingLoad();
         safety();
         System.out.println("PASS: " + checks + " assertions; single/dual flywheel sessions, loaded verification and safety");
@@ -110,7 +111,7 @@ public final class AutoTuneSimulationTest {
         Fixture fixture = new Fixture(true);
         fixture.plant.drag = 4e-7;
         fixture.manager.startTuning(fixture.time);
-        fixture.until(AutoTuneManager.Phase.AWAIT_LOAD, 600);
+        fixture.until(AutoTuneManager.Phase.AWAIT_LOAD, 1200);
         double needed = fixture.plant.steadyVoltage(fixture.config.targetVelocity);
         near(fixture.manager.gains().kS + fixture.manager.gains().kV * fixture.config.targetVelocity, needed, needed * 0.03,
                 "calibrated feedforward matches the real steady state at target");
@@ -120,15 +121,31 @@ public final class AutoTuneSimulationTest {
         check(fixture.plant.stopped(), "stopped after drag session");
     }
 
+    /** A 2.7 s time constant: FEEDFORWARD segments must wait for the wheel to settle rather than read a fixed window. */
+    private static void heavySession() {
+        Fixture fixture = new Fixture(true);
+        fixture.plant.inertia = 8;
+        fixture.plant.drag = 3e-7;
+        fixture.manager.startTuning(fixture.time);
+        fixture.until(AutoTuneManager.Phase.AWAIT_LOAD, 1200);
+        double needed = fixture.plant.steadyVoltage(fixture.config.targetVelocity);
+        near(fixture.manager.gains().kS + fixture.manager.gains().kV * fixture.config.targetVelocity, needed, needed * 0.03,
+                "heavy wheel feedforward matches the real steady state at target");
+        int points = 0;
+        for (String line : fixture.manager.trials()) if (line.startsWith("Calibration point")) points++;
+        check(points == 6, "six calibration points for a dual shooter; got " + points);
+        check(fixture.plant.stopped(), "stopped after heavy session");
+    }
+
     private static void fullSession(boolean dual) {
         Fixture fixture = new Fixture(dual);
         fixture.manager.startTuning(fixture.time);
-        fixture.until(AutoTuneManager.Phase.AWAIT_LOAD, 600);
+        fixture.until(AutoTuneManager.Phase.AWAIT_LOAD, 1200);
         check(fixture.manager.result() == null, "no export before loaded validation");
         near(fixture.manager.gains().kV, MODEL.kV, 0.0003, "simulated kV fit");
         near(fixture.manager.gains().kA, MODEL.kA, 0.0003, "simulated kA fit");
         fixture.manager.startLoaded(fixture.time);
-        fixture.until(AutoTuneManager.Phase.READY, 600);
+        fixture.until(AutoTuneManager.Phase.READY, 1200);
         check(fixture.manager.result() != null, "validated constants present");
         check(fixture.plant.pulses == 4 * fixture.config.shots, "real feed pulses for every optimization and validation shot");
         check(fixture.manager.shots().size() == 4 * fixture.config.shots, "per-shot records");
@@ -179,7 +196,7 @@ public final class AutoTuneSimulationTest {
         Fixture fixture = new Fixture(false);
         fixture.plant.deliverShots = false;
         fixture.manager.startTuning(0);
-        fixture.until(AutoTuneManager.Phase.AWAIT_LOAD, 600);
+        fixture.until(AutoTuneManager.Phase.AWAIT_LOAD, 1200);
         fixture.manager.startLoaded(fixture.time);
         fixture.until(AutoTuneManager.Phase.FAULT, 30);
         check(fixture.manager.result() == null, "empty feeder cannot validate");
@@ -282,6 +299,7 @@ public final class AutoTuneSimulationTest {
         double battery = 12.6;
         double current = 2;
         double drag;
+        double inertia = 1;
         boolean feeding;
         boolean deliverShots = true;
         boolean failConfiguration;
@@ -299,7 +317,7 @@ public final class AutoTuneSimulationTest {
                 double equilibrium = available <= 0 ? 0 : drag > 0
                         ? (-MODEL.kV + Math.sqrt(MODEL.kV * MODEL.kV + 4 * drag * available)) / (2 * drag)
                         : available / MODEL.kV;
-                velocity[motor] = equilibrium + (velocity[motor] - equilibrium) * Math.exp(-MODEL.kV / MODEL.kA * seconds);
+                velocity[motor] = equilibrium + (velocity[motor] - equilibrium) * Math.exp(-MODEL.kV / (MODEL.kA * inertia) * seconds);
             }
         }
 
