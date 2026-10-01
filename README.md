@@ -250,7 +250,7 @@ D 对测量求导，避免目标阶跃引起 derivative kick；恒定目标时�
 
 ## 安全行为与故障排查
 
-- **Browser disconnected**：1.5 秒收不到心跳即停止。不要切换到其他标签页或让手机锁屏；页面隐藏时还会主动请求 Stop。
+- **Browser disconnected**：检查 Robot Controller Wi-Fi、网页地址和页面是否仍在前台；页面隐藏时会主动请求 Stop。
 - **Loop missed deadline**：两次控制更新间隔超过 200 ms 时停止。这是软件检测，不是独立硬件 watchdog；DS STOP 和 Hub 自身保护仍然是最后防线。
 - **Battery / stall**：低于 Minimum battery voltage 或无有效读数时停止；射手功率大于 0.2 且速度低于 30 ticks/s 持续 0.8 秒视为堵转或编码器故障并停止。这两项保留，未受本次改动影响。
 - **Negative encoder**：检查方向和接线，不要用取绝对值掩盖问题。

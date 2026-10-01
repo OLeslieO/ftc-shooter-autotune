@@ -46,7 +46,7 @@ function configForm() {
 }
 
 async function post(action, body = {}) {
-  const response = await fetch(`/api/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-AutoTune-Key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(1000) });
+  const response = await fetch(`/api/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-AutoTune-Key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) });
   if (!response.ok) throw new Error(await response.text());
 }
 
@@ -167,7 +167,7 @@ async function poll() {
   try {
     if (document.hidden) { connected = false; updateButtons(); return; }
     await post('heartbeat');
-    const response = await fetch('/api/state', { cache: 'no-store', signal: AbortSignal.timeout(1000) });
+    const response = await fetch('/api/state', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
     if (!response.ok) throw new Error('Telemetry unavailable');
     const next = await response.json();
     if (!next.phase || !Number.isFinite(next.time)) throw new Error('Waiting for the first robot snapshot');

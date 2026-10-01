@@ -139,7 +139,7 @@ public final class AutoTuneWebServer extends NanoHTTPD {
     }
 
     public boolean browserAlive() {
-        return heartbeatNanos != 0 && System.nanoTime() - heartbeatNanos < 1_500_000_000L;
+        return heartbeatNanos != 0;
     }
 
     public boolean takeStop() {
