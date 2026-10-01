@@ -12,6 +12,7 @@ public final class AutoTuneSimulationTest {
         manualFeedDoesNotRetrigger();
         fullSession(false);
         fullSession(true);
+        dragSession();
         missingLoad();
         safety();
         System.out.println("PASS: " + checks + " assertions; single/dual flywheel sessions, loaded verification and safety");
@@ -102,6 +103,21 @@ public final class AutoTuneSimulationTest {
         Fixture fixture = new Fixture(false);
         rejects(() -> fixture.manager.startLoaded(0), "cannot fire before unloaded tuning");
         rejects(() -> fixture.manager.startTest(new Gains(0, 0, 0, 0, 0, 0), 0), "zero constants cannot Test");
+    }
+
+    /** Aerodynamic drag makes the static curve steeper than the spin-up transient suggests; calibration must absorb it. */
+    private static void dragSession() {
+        Fixture fixture = new Fixture(true);
+        fixture.plant.drag = 4e-7;
+        fixture.manager.startTuning(fixture.time);
+        fixture.until(AutoTuneManager.Phase.AWAIT_LOAD, 600);
+        double needed = fixture.plant.steadyVoltage(fixture.config.targetVelocity);
+        near(fixture.manager.gains().kS + fixture.manager.gains().kV * fixture.config.targetVelocity, needed, needed * 0.03,
+                "calibrated feedforward matches the real steady state at target");
+        boolean calibrated = false;
+        for (String line : fixture.manager.trials()) calibrated |= line.startsWith("Steady-state calibration");
+        check(calibrated, "steady-state calibration recorded");
+        check(fixture.plant.stopped(), "stopped after drag session");
     }
 
     private static void fullSession(boolean dual) {
@@ -265,6 +281,7 @@ public final class AutoTuneSimulationTest {
         double[] power;
         double battery = 12.6;
         double current = 2;
+        double drag;
         boolean feeding;
         boolean deliverShots = true;
         boolean failConfiguration;
@@ -278,9 +295,16 @@ public final class AutoTuneSimulationTest {
 
         void advance(double seconds) {
             for (int motor = 0; motor < velocity.length; motor++) {
-                double equilibrium = Math.max(0, (power[motor] * battery - MODEL.kS) / MODEL.kV);
+                double available = power[motor] * battery - MODEL.kS;
+                double equilibrium = available <= 0 ? 0 : drag > 0
+                        ? (-MODEL.kV + Math.sqrt(MODEL.kV * MODEL.kV + 4 * drag * available)) / (2 * drag)
+                        : available / MODEL.kV;
                 velocity[motor] = equilibrium + (velocity[motor] - equilibrium) * Math.exp(-MODEL.kV / MODEL.kA * seconds);
             }
+        }
+
+        double steadyVoltage(double speed) {
+            return MODEL.kS + MODEL.kV * speed + drag * speed * speed;
         }
 
         public double[] velocities() { return velocity.clone(); }

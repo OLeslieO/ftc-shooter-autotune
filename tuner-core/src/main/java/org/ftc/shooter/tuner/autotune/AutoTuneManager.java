@@ -47,6 +47,12 @@ public final class AutoTuneManager {
     private double readyFor;
     private int directionMotor;
     private FeedforwardTuner identification;
+    /** First FEEDFORWARD pass: measure steady states and refit kS/kV from them instead of judging the transient model. */
+    private boolean calibrating;
+    private final List<double[]> steadyPoints = new ArrayList<>();
+    private double[] tailVelocity;
+    private double[] tailVoltage;
+    private double tailWeight;
     private List<Gains> candidates;
     private int candidateIndex;
     private Gains best;
@@ -238,6 +244,8 @@ public final class AutoTuneManager {
             }
             trials.add(String.format(java.util.Locale.US, "Identification R²=%.3f, τ=%.2f s, kS=%.2f V, kV=%.5f, kA=%.5f",
                     identification.fitQuality, identification.timeConstant, gains.kS, gains.kV, gains.kA));
+            calibrating = true;
+            steadyPoints.clear();
             beginSearch(Phase.FEEDFORWARD, Collections.singletonList(gains));
             return;
         }
@@ -273,7 +281,8 @@ public final class AutoTuneManager {
         trialOvershoot = 0;
         trialBias = 0;
         coast = true;
-        message = phase + ": candidate " + (candidateIndex + 1) + "/" + candidates.size();
+        message = phase == Phase.FEEDFORWARD && calibrating ? "FEEDFORWARD: measuring steady states at 55/80/100% target"
+                : phase + ": candidate " + (candidateIndex + 1) + "/" + candidates.size();
     }
 
     private boolean coasting(double seconds) {
@@ -298,6 +307,9 @@ public final class AutoTuneManager {
     }
 
     private void newRecorders() {
+        tailVelocity = new double[powers.length];
+        tailVoltage = new double[powers.length];
+        tailWeight = 0;
         recorders = new PerformanceMetrics.Recorder[powers.length];
         for (int motor = 0; motor < recorders.length; motor++) {
             recorders[motor] = new PerformanceMetrics.Recorder(trialTarget(), velocities[motor], TRIAL_SECONDS,
@@ -309,11 +321,30 @@ public final class AutoTuneManager {
         if (coasting(seconds)) return;
         control(trialTarget(), seconds);
         for (int motor = 0; motor < recorders.length; motor++) recorders[motor].add(velocities[motor], seconds);
+        if (elapsed >= TRIAL_SECONDS * 0.8) {
+            for (int motor = 0; motor < powers.length; motor++) {
+                tailVelocity[motor] += velocities[motor] * seconds;
+                tailVoltage[motor] += powers[motor] * battery * seconds;
+            }
+            tailWeight += seconds;
+        }
         if (elapsed < TRIAL_SECONDS) return;
+        if (phase == Phase.FEEDFORWARD && calibrating) {
+            for (int motor = 0; motor < powers.length; motor++) {
+                double steadyVelocity = tailVelocity[motor] / tailWeight;
+                if (steadyVelocity < 100) {
+                    throw new IllegalStateException(String.format(java.util.Locale.US,
+                            "Shooter %d reached only %.0f ticks/s with %.1f V of feedforward; check directions and encoders",
+                            motor + 1, steadyVelocity, tailVoltage[motor] / tailWeight));
+                }
+                steadyPoints.add(new double[]{steadyVelocity, tailVoltage[motor] / tailWeight});
+            }
+        }
         for (PerformanceMetrics.Recorder recorder : recorders) {
             PerformanceMetrics metrics = recorder.finish();
-            if (phase == Phase.FEEDFORWARD && metrics.steadyError / trialTarget() > 0.15) {
-                throw new IllegalStateException("Feedforward validation failed at " + trialTarget() + " ticks/s");
+            if (phase == Phase.FEEDFORWARD && !calibrating && metrics.steadyError / trialTarget() > 0.15) {
+                throw new IllegalStateException(String.format(java.util.Locale.US,
+                        "Feedforward validation failed at %.0f ticks/s: steady error %.0f ticks/s", trialTarget(), metrics.steadyError));
             }
             trialScore += metrics.score(trialTarget()) / powers.length / 3;
             trialOvershoot = Math.max(trialOvershoot, metrics.overshoot / trialTarget());
@@ -326,6 +357,10 @@ public final class AutoTuneManager {
     }
 
     private void finishCandidate() {
+        if (phase == Phase.FEEDFORWARD && calibrating) {
+            calibrate();
+            return;
+        }
         trials.add(phase + " candidate " + (candidateIndex + 1) + " score=" + trialScore);
         if (trialScore < bestScore) {
             bestScore = trialScore;
@@ -355,6 +390,44 @@ public final class AutoTuneManager {
             stop("Unloaded tuning complete. Load game pieces and arm loaded tests in the webpage.");
             phase = Phase.AWAIT_LOAD;
         }
+    }
+
+    /**
+     * Refits kS and kV from the measured steady states of the calibration pass. The transient identification
+     * only sees a few seconds of spin-up, so on a heavy or drag-dominated flywheel it can misplace the static
+     * curve; the steady states are what the controller must reproduce. τ from the identification sets kA.
+     */
+    private void calibrate() {
+        hardware.stop();
+        double meanVelocity = 0;
+        double meanVoltage = 0;
+        for (double[] point : steadyPoints) {
+            meanVelocity += point[0] / steadyPoints.size();
+            meanVoltage += point[1] / steadyPoints.size();
+        }
+        double covariance = 0;
+        double variance = 0;
+        for (double[] point : steadyPoints) {
+            covariance += (point[0] - meanVelocity) * (point[1] - meanVoltage);
+            variance += (point[0] - meanVelocity) * (point[0] - meanVelocity);
+        }
+        if (variance < 1e4) throw new IllegalStateException("Steady-state calibration lacks speed spread; check that the shooter follows the target");
+        double velocityGain = covariance / variance;
+        double staticGain = meanVoltage - velocityGain * meanVelocity;
+        if (velocityGain <= 0 || staticGain < -0.4 || staticGain > 4) {
+            throw new IllegalStateException(String.format(java.util.Locale.US,
+                    "Nonphysical steady-state calibration (kS=%.2f V, kV=%.5f); check encoders and directions", staticGain, velocityGain));
+        }
+        double timeConstant = identification.timeConstant > 0 ? identification.timeConstant : gains.kA / gains.kV;
+        gains = new Gains(Math.max(0, staticGain), velocityGain, velocityGain * timeConstant, 0, 0, 0);
+        if (gains.kS + gains.kV * config.targetVelocity > battery * 0.95) {
+            throw new IllegalStateException(String.format(java.util.Locale.US,
+                    "Target needs %.1f V of %.1f V available; lower target velocity", gains.kS + gains.kV * config.targetVelocity, battery));
+        }
+        trials.add(String.format(java.util.Locale.US, "Steady-state calibration from %d points: kS=%.2f V, kV=%.5f, kA=%.5f",
+                steadyPoints.size(), gains.kS, gains.kV, gains.kA));
+        calibrating = false;
+        beginSearch(Phase.FEEDFORWARD, Collections.singletonList(gains));
     }
 
     private void loaded(double seconds, boolean rightBumper) {
