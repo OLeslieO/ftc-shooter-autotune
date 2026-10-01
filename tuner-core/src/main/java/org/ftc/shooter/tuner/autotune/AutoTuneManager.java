@@ -5,6 +5,10 @@ import java.util.Collections;
 import java.util.List;
 
 public final class AutoTuneManager {
+    /** Each unloaded trial holds its target this long; heavy flywheels with a 1-2 s time constant need it to settle. */
+    public static final double TRIAL_SECONDS = 6;
+    /** Time allowed for the flywheel to coast below 50 ticks/s between trials. */
+    public static final double COAST_SECONDS = 20;
     public enum Phase { IDLE, DIRECTION, IDENTIFY, FEEDFORWARD, KP, KD, KI, AWAIT_LOAD, LOADED, VERIFY, READY, TEST, FAULT }
 
     public static final class ShotResult {
@@ -278,7 +282,7 @@ public final class AutoTuneManager {
         boolean stopped = true;
         for (double velocity : velocities) stopped &= Math.abs(velocity) < 50;
         readyFor = stopped ? readyFor + seconds : 0;
-        if (elapsed > 10) throw new IllegalStateException("Flywheel did not coast down within 10 seconds");
+        if (elapsed > COAST_SECONDS) throw new IllegalStateException("Flywheel did not coast down within " + (int) COAST_SECONDS + " seconds");
         if (readyFor >= 0.2) {
             coast = false;
             elapsed = 0;
@@ -296,7 +300,7 @@ public final class AutoTuneManager {
     private void newRecorders() {
         recorders = new PerformanceMetrics.Recorder[powers.length];
         for (int motor = 0; motor < recorders.length; motor++) {
-            recorders[motor] = new PerformanceMetrics.Recorder(trialTarget(), velocities[motor], 2.5,
+            recorders[motor] = new PerformanceMetrics.Recorder(trialTarget(), velocities[motor], TRIAL_SECONDS,
                     trialTarget() < target);
         }
     }
@@ -305,7 +309,7 @@ public final class AutoTuneManager {
         if (coasting(seconds)) return;
         control(trialTarget(), seconds);
         for (int motor = 0; motor < recorders.length; motor++) recorders[motor].add(velocities[motor], seconds);
-        if (elapsed < 2.5) return;
+        if (elapsed < TRIAL_SECONDS) return;
         for (PerformanceMetrics.Recorder recorder : recorders) {
             PerformanceMetrics metrics = recorder.finish();
             if (phase == Phase.FEEDFORWARD && metrics.steadyError / trialTarget() > 0.15) {

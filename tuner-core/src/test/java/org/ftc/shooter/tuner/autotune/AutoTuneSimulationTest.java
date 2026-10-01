@@ -107,12 +107,12 @@ public final class AutoTuneSimulationTest {
     private static void fullSession(boolean dual) {
         Fixture fixture = new Fixture(dual);
         fixture.manager.startTuning(fixture.time);
-        fixture.until(AutoTuneManager.Phase.AWAIT_LOAD, 250);
+        fixture.until(AutoTuneManager.Phase.AWAIT_LOAD, 600);
         check(fixture.manager.result() == null, "no export before loaded validation");
         near(fixture.manager.gains().kV, MODEL.kV, 0.0003, "simulated kV fit");
         near(fixture.manager.gains().kA, MODEL.kA, 0.0003, "simulated kA fit");
         fixture.manager.startLoaded(fixture.time);
-        fixture.until(AutoTuneManager.Phase.READY, 250);
+        fixture.until(AutoTuneManager.Phase.READY, 600);
         check(fixture.manager.result() != null, "validated constants present");
         check(fixture.plant.pulses == 4 * fixture.config.shots, "real feed pulses for every optimization and validation shot");
         check(fixture.manager.shots().size() == 4 * fixture.config.shots, "per-shot records");
@@ -163,7 +163,7 @@ public final class AutoTuneSimulationTest {
         Fixture fixture = new Fixture(false);
         fixture.plant.deliverShots = false;
         fixture.manager.startTuning(0);
-        fixture.until(AutoTuneManager.Phase.AWAIT_LOAD, 250);
+        fixture.until(AutoTuneManager.Phase.AWAIT_LOAD, 600);
         fixture.manager.startLoaded(fixture.time);
         fixture.until(AutoTuneManager.Phase.FAULT, 30);
         check(fixture.manager.result() == null, "empty feeder cannot validate");
