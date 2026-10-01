@@ -1,0 +1,80 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "io.github.oleslieo",
+    "module": "shooter-autotune-core",
+    "version": "0.1.6",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.13"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "files": [
+        {
+          "name": "shooter-autotune-core-0.1.6.jar",
+          "url": "shooter-autotune-core-0.1.6.jar",
+          "size": 41400,
+          "sha512": "9dbf3078e1c5875d8c3ef4e54c38583369ed2951db87bdd84530fc780caeaf05cd7d9f598f9a01c758f4ae87a0c8249c8a145df77edcc344dad95970e87e1c43",
+          "sha256": "ca3c3a246e30fe85f156692cd795c26583152d122117645a4ba0096b48810dd9",
+          "sha1": "e69edae81cd35a77a07ffd03e6d01756b5615eba",
+          "md5": "db4615131177064a498c2c157f6e0869"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "shooter-autotune-core-0.1.6.jar",
+          "url": "shooter-autotune-core-0.1.6.jar",
+          "size": 41400,
+          "sha512": "9dbf3078e1c5875d8c3ef4e54c38583369ed2951db87bdd84530fc780caeaf05cd7d9f598f9a01c758f4ae87a0c8249c8a145df77edcc344dad95970e87e1c43",
+          "sha256": "ca3c3a246e30fe85f156692cd795c26583152d122117645a4ba0096b48810dd9",
+          "sha1": "e69edae81cd35a77a07ffd03e6d01756b5615eba",
+          "md5": "db4615131177064a498c2c157f6e0869"
+        }
+      ]
+    },
+    {
+      "name": "sourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "shooter-autotune-core-0.1.6-sources.jar",
+          "url": "shooter-autotune-core-0.1.6-sources.jar",
+          "size": 18096,
+          "sha512": "516012b9cd918d6fa134b82e0a18d688c26726a1bd7e9cd3f9c1028bd36763fffd5112f002f3fd739a47879f10cf5f41a956c2eb13d263973aceec86d932886c",
+          "sha256": "bfa80ec8e6231910793986db0ae1bafaa7125ebee3bdb3f14c05631a6d29085b",
+          "sha1": "72aeba26dd9bc2a54dda6b1bbb8cd503971fb916",
+          "md5": "6fd3158c35c1534667525864d2eae57e"
+        }
+      ]
+    }
+  ]
+}
