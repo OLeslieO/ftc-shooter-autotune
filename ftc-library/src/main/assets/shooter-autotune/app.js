@@ -17,6 +17,7 @@ let state = {};
 let initialized = false;
 let connected = false;
 let sending = false;
+let connectionFailures = 0;
 const history = [];
 for (const [name, labelText, type, minimum, maximum] of fields) {
   const wrapper = document.createElement('div');
@@ -165,20 +166,20 @@ function drawGraph() {
 
 async function poll() {
   try {
-    if (document.hidden) { connected = false; updateButtons(); return; }
     await post('heartbeat');
     const response = await fetch('/api/state', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
     if (!response.ok) throw new Error('Telemetry unavailable');
     const next = await response.json();
     if (!next.phase || !Number.isFinite(next.time)) throw new Error('Waiting for the first robot snapshot');
     connected = true;
+    connectionFailures = 0;
     render(next);
   } catch (error) {
+    connectionFailures++;
     connected = false;
-    element('connection').textContent = 'Disconnected · motor watchdog stops output · reconnect Wi-Fi and reload if needed';
+    element('connection').textContent = `Connection retry ${connectionFailures}: ${error.message || 'Robot Controller unavailable'}`;
     updateButtons();
   } finally { setTimeout(poll, 150); }
 }
-document.addEventListener('visibilitychange', () => { if (document.hidden) post('stop').catch(() => {}); });
 updateButtons();
 poll();
