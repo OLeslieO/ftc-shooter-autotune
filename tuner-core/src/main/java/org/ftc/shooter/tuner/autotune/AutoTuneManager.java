@@ -42,10 +42,6 @@ public final class AutoTuneManager {
     private double readyFor;
     private int directionMotor;
     private FeedforwardTuner identification;
-    private double[] windowStartVelocity;
-    private double[] identificationPreviousVelocity;
-    private double[] windowVoltage;
-    private double windowTime;
     private List<Gains> candidates;
     private int candidateIndex;
     private Gains best;
@@ -121,9 +117,7 @@ public final class AutoTuneManager {
         shots.clear();
         trials.clear();
         identification = new FeedforwardTuner();
-        windowStartVelocity = null;
-        identificationPreviousVelocity = initialVelocity;
-        windowTime = 0;
+        identification.begin(initialVelocity);
         phase = Phase.IDENTIFY;
         message = "Identifying kS/kV/kA with bounded power steps; keep the shooter unloaded";
     }
@@ -218,22 +212,10 @@ public final class AutoTuneManager {
     }
 
     private void identify(double seconds) {
-        if (windowStartVelocity == null) {
-            windowStartVelocity = identificationPreviousVelocity;
-            windowVoltage = new double[powers.length];
+        // powers[] still holds the command applied during the interval that just ended.
+        for (int motor = 0; motor < velocities.length; motor++) {
+            identification.add(motor, velocities[motor], powers[motor] * battery, seconds);
         }
-        windowTime += seconds;
-        for (int motor = 0; motor < powers.length; motor++) windowVoltage[motor] += powers[motor] * battery * seconds;
-        if (windowTime >= 0.08) {
-            for (int motor = 0; motor < velocities.length; motor++) {
-                identification.add((windowStartVelocity[motor] + velocities[motor]) / 2,
-                        (velocities[motor] - windowStartVelocity[motor]) / windowTime,
-                        windowVoltage[motor] / windowTime);
-            }
-            windowStartVelocity = null;
-            windowTime = 0;
-        }
-        identificationPreviousVelocity = velocities.clone();
         double[] levels = {0.2, 0.4, 0.65, 0.35, 0.75, 0.5};
         int step = (int) (elapsed / 1.6);
         if (step >= levels.length) {
@@ -241,7 +223,8 @@ public final class AutoTuneManager {
             if (gains.kS + gains.kV * config.targetVelocity > battery * 0.9) {
                 throw new IllegalStateException("Target lacks power headroom; lower target velocity");
             }
-            trials.add("Identification R²=" + identification.fitQuality);
+            trials.add(String.format(java.util.Locale.US, "Identification R²=%.3f, τ=%.2f s, kS=%.2f V, kV=%.5f, kA=%.5f",
+                    identification.fitQuality, identification.timeConstant, gains.kS, gains.kV, gains.kA));
             beginSearch(Phase.FEEDFORWARD, Collections.singletonList(gains));
             return;
         }

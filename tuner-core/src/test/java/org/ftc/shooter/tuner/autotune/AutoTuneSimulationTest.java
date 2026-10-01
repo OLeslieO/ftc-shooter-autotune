@@ -18,19 +18,51 @@ public final class AutoTuneSimulationTest {
     }
 
     private static void identification() {
-        FeedforwardTuner tuner = new FeedforwardTuner();
-        for (int index = 0; index < 100; index++) {
-            double velocity = 300 + index * 12;
-            double acceleration = (index % 7 - 3) * 150;
-            tuner.add(velocity, acceleration, MODEL.kS + MODEL.kV * velocity + MODEL.kA * acceleration);
+        Gains exact = identify(MODEL, 0, 0, 1);
+        // The plant clamps at zero speed during the initial unpowered tick, so the linear fit is not bit-exact.
+        near(exact.kS, MODEL.kS, 0.01, "identify kS");
+        near(exact.kV, MODEL.kV, 1e-5, "identify kV");
+        near(exact.kA, MODEL.kA, 1e-5, "identify kA");
+        // Heavy flywheel (τ = 2 s) with 50 ticks/s gaussian encoder noise and 40 ticks/s quantisation,
+        // the regime where differentiating velocity made the previous estimator fail (R² ≈ 0.4).
+        Gains heavy = new Gains(0.3, 0.006, 0.012, 0, 0, 0);
+        for (int seed = 1; seed <= 5; seed++) {
+            FeedforwardTuner tuner = new FeedforwardTuner();
+            Gains noisy = identify(heavy, 50, 40, seed, tuner);
+            check(tuner.fitQuality > 0.95, "noisy heavy flywheel R²: got " + tuner.fitQuality);
+            near(noisy.kV / heavy.kV, 1, 0.05, "noisy kV within 5%");
+            near(noisy.kA / heavy.kA, 1, 0.15, "noisy kA within 15%");
+            near(noisy.kS, heavy.kS, 0.4, "noisy kS");
         }
-        Gains fitted = tuner.fit();
-        near(fitted.kS, MODEL.kS, 1e-8, "identify kS");
-        near(fitted.kV, MODEL.kV, 1e-8, "identify kV");
-        near(fitted.kA, MODEL.kA, 1e-8, "identify kA");
         FeedforwardTuner singular = new FeedforwardTuner();
-        for (int index = 0; index < 40; index++) singular.add(1000, 0, 6.3);
+        singular.begin(new double[]{1000});
+        for (int index = 0; index < 400; index++) singular.add(0, 1000, 6.3, 0.02);
         rejects(singular::fit, "reject singular identification");
+    }
+
+    private static Gains identify(Gains model, double noise, double quantum, long seed) {
+        return identify(model, noise, quantum, seed, new FeedforwardTuner());
+    }
+
+    /** Replays the manager's six 1.6 s power steps against an exact first-order plant with measurement noise. */
+    private static Gains identify(Gains model, double noise, double quantum, long seed, FeedforwardTuner tuner) {
+        java.util.Random random = new java.util.Random(seed);
+        double[] levels = {0.2, 0.4, 0.65, 0.35, 0.75, 0.5};
+        double battery = 12.6;
+        double velocity = 0;
+        double power = 0;
+        double elapsed = 0;
+        tuner.begin(new double[]{0});
+        while ((int) (elapsed / 1.6) < levels.length) {
+            double equilibrium = Math.max(0, (power * battery - model.kS) / model.kV);
+            velocity = equilibrium + (velocity - equilibrium) * Math.exp(-model.kV / model.kA * 0.02);
+            double measured = velocity + random.nextGaussian() * noise;
+            if (quantum > 0) measured = Math.round(measured / quantum) * quantum;
+            tuner.add(0, measured, power * battery, 0.02);
+            elapsed += 0.02;
+            power = levels[(int) Math.min(levels.length - 1, elapsed / 1.6)];
+        }
+        return tuner.fit();
     }
 
     private static void controller() {
