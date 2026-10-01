@@ -46,7 +46,7 @@ function configForm() {
 }
 
 async function post(action, body = {}) {
-  const response = await fetch(`/api/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-AutoTune-Key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+  const response = await fetch(`/api/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-AutoTune-Key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(500000) });
   if (!response.ok) throw new Error(await response.text());
 }
 
