@@ -252,7 +252,7 @@ D 对测量求导，避免目标阶跃引起 derivative kick；恒定目标时�
 
 - **Browser disconnected**：检查 Robot Controller Wi-Fi、网页地址和浏览器是否仍能访问 Robot Controller。
 - **Loop missed deadline**：两次控制更新间隔超过 200 ms 时停止。这是软件检测，不是独立硬件 watchdog；DS STOP 和 Hub 自身保护仍然是最后防线。
-- **Battery / stall**：低于 Minimum battery voltage 或无有效读数时停止；射手功率大于 0.2 且速度低于 30 ticks/s 持续 0.8 秒视为堵转或编码器故障并停止。这两项保留，未受本次改动影响。
+- **Battery / stall**：电压持续 0.5 秒低于 Minimum battery voltage（默认 10.5 V）或无有效读数时停止，瞬时压降不触发；故障信息会给出实测电压。射手功率大于 0.2 且速度低于 30 ticks/s 持续 0.8 秒视为堵转或编码器故障并停止。
 - **Negative encoder**：检查方向和接线，不要用取绝对值掩盖问题。
 - **Insufficient excitation / poor fit**：检查负载摩擦、编码器噪声和两台电机是否一致。模型验证不通过时不会进入带载射击。
 - **No power headroom**：降低目标速度；控制器功率上限固定为 1.0（满功率），无法再调整。

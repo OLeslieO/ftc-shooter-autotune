@@ -195,8 +195,16 @@ public final class AutoTuneSimulationTest {
         fixture = new Fixture(false);
         fixture.manager.startTest(MODEL, 0);
         fixture.plant.battery = 9;
-        fixture.tick(0.02, false);
-        check(fixture.plant.stopped() && fixture.manager.phase() == AutoTuneManager.Phase.FAULT, "battery stop");
+        fixture.tick(0.3, false);
+        check(fixture.manager.phase() == AutoTuneManager.Phase.TEST, "brief voltage sag tolerated");
+        fixture.plant.battery = 12.6;
+        fixture.tick(0.1, false);
+        fixture.plant.battery = 9;
+        fixture.tick(0.4, false);
+        check(fixture.manager.phase() == AutoTuneManager.Phase.TEST, "sag timer resets on recovery");
+        fixture.tick(0.2, false);
+        check(fixture.plant.stopped() && fixture.manager.phase() == AutoTuneManager.Phase.FAULT, "sustained low battery stops");
+        check(fixture.manager.message().startsWith("Low battery: 9.0 V"), "battery message reports voltage");
         fixture = new Fixture(false);
         fixture.manager.directionTest(0, 0);
         fixture.tick(0.4, false);

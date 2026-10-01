@@ -34,6 +34,7 @@ public final class AutoTuneManager {
     private double[] powers = new double[0];
     private double[] currents = new double[0];
     private double[] stalledFor;
+    private double lowBatteryFor;
     private double battery;
     private double target;
     private double elapsed;
@@ -148,6 +149,7 @@ public final class AutoTuneManager {
         readyFor = 0;
         target = 0;
         manualFeeding = false;
+        lowBatteryFor = 0;
         for (int index = 0; index < powers.length; index++) {
             controllers[index].reset();
             powers[index] = 0;
@@ -193,7 +195,14 @@ public final class AutoTuneManager {
     }
 
     private void safety(double seconds) {
-        if (!Double.isFinite(battery) || battery < config.minBatteryVolts) throw new IllegalStateException("Low/invalid battery voltage");
+        if (!Double.isFinite(battery)) throw new IllegalStateException("Invalid battery voltage reading");
+        // Full-power flywheel spin-up pulls the pack down for a few hundred milliseconds; only a sustained sag is a fault.
+        lowBatteryFor = battery < config.minBatteryVolts ? lowBatteryFor + seconds : 0;
+        if (lowBatteryFor > 0.5) {
+            throw new IllegalStateException(String.format(java.util.Locale.US,
+                    "Low battery: %.1f V stayed below the %.1f V minimum for 0.5 s; charge or lower Minimum battery voltage",
+                    battery, config.minBatteryVolts));
+        }
         if (velocities.length != powers.length || currents.length != powers.length + 1) {
             throw new IllegalStateException("Hardware sample size mismatch");
         }
