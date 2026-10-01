@@ -377,7 +377,7 @@ public final class AutoTuneManager {
         if (phase == Phase.FEEDFORWARD) {
             for (int motor = 0; motor < powers.length; motor++) {
                 if (calibrating) {
-                    if (steadyVelocity[motor] < 100) {
+                    if (steadyVelocity[motor] < 300) {
                         throw new IllegalStateException(String.format(java.util.Locale.US,
                                 "Shooter %d reached only %.0f ticks/s with %.1f V of feedforward; check directions and encoders",
                                 motor + 1, steadyVelocity[motor], steadyVoltage[motor]));
