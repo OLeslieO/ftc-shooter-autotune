@@ -17,6 +17,9 @@ import fi.iki.elonen.NanoHTTPD;
 public final class AutoTuneWebServer extends NanoHTTPD {
     /** 8080/8081 belong to the Robot Controller web console and its WebSocket; 8000/8001 to FTC Dashboard and Panels. */
     public static final int[] PORTS = {8082, 8083, 8084};
+    /** Idle keep-alive timeout. The browser polls every ~150 ms (about 1 s when the tab is in the background). */
+    private static final int SOCKET_TIMEOUT_MILLIS = 30_000;
+    private static final int MAX_BODY_BYTES = 8192;
     public final int port;
     public static final class Command {
         public final String action;
@@ -49,7 +52,7 @@ public final class AutoTuneWebServer extends NanoHTTPD {
         for (int candidate : PORTS) {
             AutoTuneWebServer server = new AutoTuneWebServer(assets, candidate);
             try {
-                server.start(1000, true);
+                server.start(SOCKET_TIMEOUT_MILLIS, true);
                 return server;
             } catch (IOException failure) {
                 server.stop();
@@ -89,6 +92,10 @@ public final class AutoTuneWebServer extends NanoHTTPD {
             if (origin != null && !origin.equals("http://" + session.getHeaders().get("host"))) {
                 return reply(Response.Status.FORBIDDEN, "text/plain", "Same-origin requests only");
             }
+            // NanoHTTPD 2.3.1 never skips an unread request body. On a keep-alive connection the leftover
+            // bytes would be parsed as the start of the next request ("{}GET /api/state"), which makes the
+            // server answer 400 and drop the socket, so every POST must drain its body before replying.
+            byte[] body = readBody(session);
             if (uri.equals("/api/heartbeat")) {
                 heartbeatNanos = System.nanoTime();
                 return reply(Response.Status.OK, "application/json", "{}");
@@ -101,15 +108,7 @@ public final class AutoTuneWebServer extends NanoHTTPD {
                 return reply(Response.Status.OK, "application/json", "{}");
             }
             if (!uri.matches("/api/(configure|direction|tune|loaded|test)")) return reply(Response.Status.NOT_FOUND, "text/plain", "Unknown action");
-            int length = Integer.parseInt(session.getHeaders().getOrDefault("content-length", "0"));
-            if (length < 2 || length > 8192) return reply(Response.Status.BAD_REQUEST, "text/plain", "Expected JSON body under 8 KB");
-            byte[] body = new byte[length];
-            int read = 0;
-            while (read < length) {
-                int count = session.getInputStream().read(body, read, length - read);
-                if (count < 0) throw new IOException("Incomplete request");
-                read += count;
-            }
+            if (body.length < 2) return reply(Response.Status.BAD_REQUEST, "text/plain", "Expected JSON body under 8 KB");
             Command command = new Command(uri.substring(5), new JSONObject(new String(body, StandardCharsets.UTF_8)));
             synchronized (commands) {
                 if (stopRequested.get() || !commands.offer(command)) return reply(Response.Status.CONFLICT, "text/plain", "Command pending; wait for telemetry");
@@ -118,6 +117,20 @@ public final class AutoTuneWebServer extends NanoHTTPD {
         } catch (Exception exception) {
             return reply(Response.Status.BAD_REQUEST, "text/plain", "Invalid request: " + exception.getMessage());
         }
+    }
+
+    /** Reads exactly Content-Length bytes so nothing is left on the keep-alive connection. */
+    private static byte[] readBody(IHTTPSession session) throws IOException {
+        int length = Integer.parseInt(session.getHeaders().getOrDefault("content-length", "0"));
+        if (length < 0 || length > MAX_BODY_BYTES) throw new IOException("Expected JSON body under 8 KB");
+        byte[] body = new byte[length];
+        int read = 0;
+        while (read < length) {
+            int count = session.getInputStream().read(body, read, length - read);
+            if (count < 0) throw new IOException("Incomplete request");
+            read += count;
+        }
+        return body;
     }
 
     private String asset(String name) throws IOException {
