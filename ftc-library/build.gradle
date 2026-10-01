@@ -7,8 +7,16 @@ android {
     namespace = "org.ftc.shooter.tuner.library"
     compileSdkVersion 30
 
+    def releaseProperties = new Properties()
+    file('../gradle.properties').withInputStream { releaseProperties.load(it) }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         minSdkVersion 24
+        buildConfigField 'String', 'VERSION', "\"${releaseProperties.getProperty('version')}\""
     }
 
     compileOptions {

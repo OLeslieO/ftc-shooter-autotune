@@ -20,6 +20,7 @@ public final class AutoTuneWebServer extends NanoHTTPD {
     /** Idle keep-alive timeout. The browser polls every ~150 ms (about 1 s when the tab is in the background). */
     private static final int SOCKET_TIMEOUT_MILLIS = 30_000;
     private static final int MAX_BODY_BYTES = 8192;
+    public static final String VERSION = org.ftc.shooter.tuner.library.BuildConfig.VERSION;
     public final int port;
     public static final class Command {
         public final String action;
@@ -33,7 +34,8 @@ public final class AutoTuneWebServer extends NanoHTTPD {
     }
 
     private final AssetManager assets;
-    private final String key = UUID.randomUUID().toString();
+    /** One key per Robot Controller process, so a page opened before an OpMode restart keeps working. */
+    private static final String KEY = UUID.randomUUID().toString();
     private final ArrayBlockingQueue<Command> commands = new ArrayBlockingQueue<>(4);
     private final AtomicBoolean stopRequested = new AtomicBoolean();
     private volatile long heartbeatNanos;
@@ -80,22 +82,22 @@ public final class AutoTuneWebServer extends NanoHTTPD {
                     return response;
                 }
                 if (uri.equals("/") || uri.equals("/index.html")) {
-                    return reply(Response.Status.OK, "text/html; charset=utf-8", asset("index.html").replace("SESSION_KEY", key));
+                    return reply(Response.Status.OK, "text/html; charset=utf-8", asset("index.html").replace("SESSION_KEY", KEY));
                 }
                 if (uri.equals("/app.js")) return reply(Response.Status.OK, "application/javascript", asset("app.js"));
                 if (uri.equals("/style.css")) return reply(Response.Status.OK, "text/css", asset("style.css"));
                 return reply(Response.Status.NOT_FOUND, "text/plain", "Not found");
             }
             if (session.getMethod() != Method.POST) return reply(Response.Status.METHOD_NOT_ALLOWED, "text/plain", "POST required");
-            if (!key.equals(session.getHeaders().get("x-autotune-key"))) return reply(Response.Status.FORBIDDEN, "text/plain", "Reload the tuner page");
+            // NanoHTTPD 2.3.1 never skips an unread request body. On a keep-alive connection the leftover
+            // bytes would be parsed as the start of the next request ("{}POST /api/heartbeat"), which makes
+            // the server answer 400, so every POST drains its body before any check can reply.
+            byte[] body = readBody(session);
+            if (!KEY.equals(session.getHeaders().get("x-autotune-key"))) return reply(Response.Status.FORBIDDEN, "text/plain", "Reload the tuner page");
             String origin = session.getHeaders().get("origin");
             if (origin != null && !origin.equals("http://" + session.getHeaders().get("host"))) {
                 return reply(Response.Status.FORBIDDEN, "text/plain", "Same-origin requests only");
             }
-            // NanoHTTPD 2.3.1 never skips an unread request body. On a keep-alive connection the leftover
-            // bytes would be parsed as the start of the next request ("{}GET /api/state"), which makes the
-            // server answer 400 and drop the socket, so every POST must drain its body before replying.
-            byte[] body = readBody(session);
             if (uri.equals("/api/heartbeat")) {
                 heartbeatNanos = System.nanoTime();
                 return reply(Response.Status.OK, "application/json", "{}");
@@ -145,6 +147,9 @@ public final class AutoTuneWebServer extends NanoHTTPD {
 
     private Response reply(Response.Status status, String mime, String body) {
         Response response = newFixedLengthResponse(status, mime, body);
+        // Never reuse a connection after an error: whatever the client sent next cannot be trusted to line up.
+        if (status.getRequestStatus() >= 400) response.closeConnection(true);
+        response.addHeader("X-AutoTune-Version", VERSION);
         response.addHeader("Cache-Control", "no-store");
         response.addHeader("X-Content-Type-Options", "nosniff");
         response.addHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'");

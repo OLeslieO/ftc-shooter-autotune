@@ -46,8 +46,16 @@ function configForm() {
     : type === 'text' ? element(name).value.trim() : element(name).value === 'true']));
 }
 
+let version = '';
 async function post(action, body = {}) {
   const response = await fetch(`/api/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-AutoTune-Key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(500000) });
+  version = response.headers.get('X-AutoTune-Version') || version;
+  if (response.status === 403) {
+    // The robot restarted with a new session key; a fresh page picks up the new one.
+    element('connection').textContent = 'Robot restarted · reloading page…';
+    window.location.reload();
+    await new Promise(() => {});
+  }
   if (!response.ok) throw new Error(await response.text());
 }
 
@@ -89,7 +97,7 @@ function render(next) {
     for (const [name] of fields) element(name).value = String(next.savedConfig[name]);
     initialized = true;
   }
-  element('connection').textContent = next.active ? 'Connected · Driver Station started' : 'Connected · Press Driver Station Start to enable motor experiments';
+  element('connection').textContent = `${next.active ? 'Connected · Driver Station started' : 'Connected · Press Driver Station Start to enable motor experiments'}${version ? ' · library v' + version : ''}`;
   element('phase').textContent = next.phase;
   element('message').textContent = next.message;
   element('command').textContent = next.commandMessage;
